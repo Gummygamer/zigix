@@ -17,7 +17,7 @@ rejected.
 | 1     | First boot                           | done         | QEMU smoke: `[ZIGIX:BOOT:START]` + `[ZIGIX:BOOT:OK]`, exit 33 |
 | 2     | Kernel logging, panic, test runner   | done         | `[ZIGIX:TEST:PASS:kernel_smoke]` |
 | 3     | Memory management                    | done         | `[ZIGIX:MM:OK]` |
-| 4     | Interrupts and timer                 | next         | (folded into Phase 3 marker) |
+| 4     | Interrupts and timer                 | next         | `[ZIGIX:TEST:PASS:exception_caught]` |
 | 5     | VFS and initramfs                    | pending      | `[ZIGIX:VFS:OK]` |
 | 6     | Syscall ABI v0                       | pending      | `[ZIGIX:SYSCALL:OK]` |
 | 7     | ELF64 static loader                  | pending      | `[ZIGIX:ELF:OK]` |
@@ -36,7 +36,7 @@ rejected.
 - [x] QEMU runner (`tools/qemu/run.sh`) that fails clearly when no kernel
       is built, isa-debug-exit-aware.
 - [x] Serial-marker parser (`tools/qemu/smoke_test.py`).
-- [x] `ci/local.sh` (15 checks; positive and negative).
+- [x] `ci/local.sh` (16 checks; positive and negative).
 - [x] GitHub Actions: host-checks job + qemu-smoke job that downloads
       Bun Zig and runs the full pipeline.
 
