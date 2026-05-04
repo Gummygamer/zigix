@@ -1,0 +1,11 @@
+.env
+.claude/
+.codex
+.zig-cache/
+zig-cache/
+zig-out/
+*.o
+*.elf
+*.bin
+*.iso
+docs/benchmark-results/

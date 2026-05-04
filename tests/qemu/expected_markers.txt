@@ -1,0 +1,33 @@
+# Expected QEMU serial-log markers per phase.
+# Authoritative copy lives in tools/qemu/smoke_test.py (PHASES dict);
+# this file is documentation that mirrors it.
+
+[phase1]
+[ZIGIX:BOOT:START]
+[ZIGIX:BOOT:OK]
+
+[phase2]
+[ZIGIX:BOOT:START]
+[ZIGIX:BOOT:OK]
+[ZIGIX:TEST:PASS:kernel_smoke]
+
+[phase3]
+[ZIGIX:BOOT:OK]
+[ZIGIX:MM:OK]
+
+[phase5]
+[ZIGIX:BOOT:OK]
+[ZIGIX:VFS:OK]
+
+[phase6]
+[ZIGIX:BOOT:OK]
+[ZIGIX:SYSCALL:OK]
+
+[phase7]
+[ZIGIX:BOOT:OK]
+[ZIGIX:ELF:OK]
+
+[phase8]
+[ZIGIX:BOOT:OK]
+[ZIGIX:INIT:START]
+[ZIGIX:INIT:OK]

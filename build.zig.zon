@@ -1,0 +1,18 @@
+.{
+    .name = .zigix,
+    .version = "0.0.0",
+    .fingerprint = 0x941743bf80e1c9f7,
+    .minimum_zig_version = "0.15.2",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "kernel",
+        "userspace",
+        "tools",
+        "tests",
+        "docs",
+        "ci",
+        "README.md",
+    },
+    .dependencies = .{},
+}

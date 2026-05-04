@@ -1,0 +1,77 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  ZIG_COMMIT: 04e7f6ac1e009525bc00934f20199c68f04e0a24
+  ZIGIX_BUN_ZIG_PINNED_VERSION: "0.15.2"
+
+jobs:
+  host-checks:
+    # Host-only checks. Always run; no Bun Zig required.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ensure scripts are executable
+        run: |
+          chmod +x \
+            tools/toolchain/zig-bun \
+            tools/toolchain/check-bun-zig.sh \
+            tools/qemu/run.sh \
+            tools/qemu/smoke_test.py \
+            tools/kernel/validate-elf.sh \
+            ci/local.sh
+      - name: run local CI (no Bun Zig)
+        run: ci/local.sh
+
+  qemu-smoke:
+    # Full Phase 1 acceptance: Bun Zig + QEMU + kernel build + serial-marker
+    # verification. Mirrors what `ci/local.sh` runs locally when ZIGIX_BUN_ZIG
+    # is exported.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install QEMU
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y qemu-system-x86 binutils
+
+      - name: download Bun-fork Zig
+        run: |
+          set -euo pipefail
+          ZIG_DIR="$HOME/.local/share/bun-zig/${ZIG_COMMIT}"
+          mkdir -p "$(dirname "$ZIG_DIR")"
+          curl -fL --progress-bar \
+            -o /tmp/bun-zig.zip \
+            "https://github.com/oven-sh/zig/releases/download/autobuild-${ZIG_COMMIT}/bootstrap-x86_64-linux-musl-ReleaseSafe.zip"
+          rm -rf /tmp/bun-zig-extract "$ZIG_DIR"
+          unzip -q /tmp/bun-zig.zip -d /tmp/bun-zig-extract
+          inner=$(find /tmp/bun-zig-extract -mindepth 1 -maxdepth 1 -type d | head -n1)
+          mv "$inner" "$ZIG_DIR"
+          rm -rf /tmp/bun-zig-extract /tmp/bun-zig.zip
+          echo "ZIGIX_BUN_ZIG=$ZIG_DIR/zig" >> "$GITHUB_ENV"
+
+      - name: ensure scripts are executable
+        run: |
+          chmod +x \
+            tools/toolchain/zig-bun \
+            tools/toolchain/check-bun-zig.sh \
+            tools/qemu/run.sh \
+            tools/qemu/smoke_test.py \
+            tools/kernel/validate-elf.sh \
+            ci/local.sh
+
+      - name: run full local CI (Bun Zig + QEMU)
+        run: ci/local.sh
+
+      - name: archive serial log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: serial-log
+          path: zig-out/serial.log
+          if-no-files-found: ignore

@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Canonical Zig invocation for Zigix.
+#
+# Refuses to run unless ZIGIX_BUN_ZIG points at an executable Bun-fork Zig
+# binary. Logs compiler identity to stderr so build/test logs always record
+# which compiler produced them.
+#
+# See docs/bun-zig-toolchain.md.
+
+set -euo pipefail
+
+err() { printf '[zig-bun] ERROR: %s\n' "$*" >&2; }
+warn() { printf '[zig-bun] WARNING: %s\n' "$*" >&2; }
+
+if [[ -z "${ZIGIX_BUN_ZIG:-}" ]]; then
+  err "ZIGIX_BUN_ZIG is not set."
+  err "Set it to the absolute path of the Bun-fork Zig binary."
+  err "See docs/bun-zig-toolchain.md."
+  exit 2
+fi
+
+if [[ ! -x "$ZIGIX_BUN_ZIG" ]]; then
+  err "ZIGIX_BUN_ZIG=$ZIGIX_BUN_ZIG is not an executable file."
+  exit 2
+fi
+
+# Detect accidental system-zig pointer. The user can opt in explicitly via
+# ZIGIX_ALLOW_SYSTEM_ZIG=1, e.g. when they have intentionally installed the
+# Bun-fork binary at a system path.
+case "$ZIGIX_BUN_ZIG" in
+  /usr/bin/zig|/usr/local/bin/zig|"$HOME"/.local/bin/zig)
+    if [[ "${ZIGIX_ALLOW_SYSTEM_ZIG:-0}" != "1" ]]; then
+      err "ZIGIX_BUN_ZIG=$ZIGIX_BUN_ZIG looks like system Zig."
+      err "Refusing to run. If this really is the Bun-fork binary at a system"
+      err "path, set ZIGIX_ALLOW_SYSTEM_ZIG=1 to acknowledge that."
+      exit 2
+    fi
+    warn "ZIGIX_BUN_ZIG looks like a system path; ZIGIX_ALLOW_SYSTEM_ZIG=1 acknowledged."
+    ;;
+esac
+
+# Log compiler identity unless explicitly silenced. This emits the
+# [ZIGIX:TOOLCHAIN:...] marker that the smoke parser recognizes.
+if [[ "${ZIGIX_LOG_TOOLCHAIN:-1}" == "1" ]]; then
+  ver="$("$ZIGIX_BUN_ZIG" version 2>/dev/null || echo unknown)"
+  printf '[ZIGIX:TOOLCHAIN:zig-bun=%s version=%s]\n' "$ZIGIX_BUN_ZIG" "$ver" >&2
+fi
+
+if [[ -z "${ZIG_GLOBAL_CACHE_DIR:-}" ]]; then
+  export ZIG_GLOBAL_CACHE_DIR="${TMPDIR:-/tmp}/zigix-zig-cache"
+fi
+
+exec "$ZIGIX_BUN_ZIG" "$@"
