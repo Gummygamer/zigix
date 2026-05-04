@@ -56,14 +56,18 @@ for the rationale.
 2. The loader places the LOAD segments at their linker-script addresses
    (text starts at `0x100000`) and jumps to `_start` in 32-bit protected
    mode with `EAX = 0x2BADB002`, `EBX = mbi-ptr`, `IF = 0`, paging off.
-3. `kernel/arch/x86_64/boot/start.S` builds identity paging for the first
-   1 GiB (`PML4[0] -> PDPT[0]`, where `PDPT[0]` is a single 1 GiB huge
-   page), enables `CR4.PAE`, sets `EFER.LME`, enables `CR0.PG`, loads a
-   64-bit GDT, and far-jumps to `long_mode_start`.
-4. `long_mode_start` reloads segment selectors and calls `kmain` (Zig).
+3. `kernel/arch/x86_64/boot/start.S` saves `EAX/EBX`, builds identity paging
+   for the first 1 GiB (`PML4[0] -> PDPT[0] -> 512 x 2 MiB PDEs`), enables
+   `CR4.PAE`, sets `EFER.LME`, enables `CR0.PG`, loads a 64-bit GDT, and
+   far-jumps to `long_mode_start`.
+4. `long_mode_start` reloads segment selectors and calls `kmain` (Zig) with
+   the real Multiboot1 magic and info pointer in `RDI`/`RSI`.
 5. `kmain` initializes COM1 and prints `[ZIGIX:BOOT:START]`,
-   `[ZIGIX:TOOLCHAIN:bun-zig=<v>]`, `[ZIGIX:BOOT:OK]`.
-6. `kmain` writes `0x10` to the `isa-debug-exit` device on port `0xF4`,
+   `[ZIGIX:TOOLCHAIN:bun-zig=<v>]`.
+6. `kmain` validates the Multiboot1 handoff, parses the memory map,
+   initializes the physical page allocator and early heap, runs the kernel
+   smoke registry, and emits `[ZIGIX:MM:OK]` before `[ZIGIX:BOOT:OK]`.
+7. `kmain` writes `0x10` to the `isa-debug-exit` device on port `0xF4`,
    causing QEMU to exit with status `33` so CI finishes in milliseconds
    instead of waiting for the harness timeout.
 
@@ -81,13 +85,10 @@ mode and accepts them.
 
 ## Boot flow (later phases — not yet implemented)
 
-7. Kernel installs GDT/IDT and basic exception handlers.
-8. Kernel parses the bootloader's memory map.
-9. Kernel initializes the physical-page allocator and the heap, prints
-   `[ZIGIX:MM:OK]`.
-10. Kernel mounts the initramfs and prints `[ZIGIX:VFS:OK]`.
-11. Kernel sets up the syscall table and prints `[ZIGIX:SYSCALL:OK]`.
-12. Kernel loads `/init` from initramfs and drops to user mode.
-13. Init prints `[ZIGIX:INIT:OK]`.
+8. Kernel installs GDT/IDT and basic exception handlers.
+9. Kernel mounts the initramfs and prints `[ZIGIX:VFS:OK]`.
+10. Kernel sets up the syscall table and prints `[ZIGIX:SYSCALL:OK]`.
+11. Kernel loads `/init` from initramfs and drops to user mode.
+12. Init prints `[ZIGIX:INIT:OK]`.
 
 Each step is a phase in the roadmap.

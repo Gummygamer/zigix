@@ -1,10 +1,10 @@
 //! Zigix build orchestration.
 //!
-//! Phase 2 steps:
+//! Phase 3 steps:
 //!   * `check-toolchain`     -- runs the host-side toolchain check script.
 //!   * `kernel`              -- builds zig-out/bin/zigix-kernel (multiboot1 ELF).
 //!   * `validate-kernel-elf` -- sanity-checks the ELF (32-bit ELF check, multiboot magic).
-//!   * `qemu-smoke`          -- boots the kernel headlessly and parses Phase 2 serial markers.
+//!   * `qemu-smoke`          -- boots the kernel headlessly and parses Phase 3 serial markers.
 //!   * `host-test`           -- placeholder (no host tests yet).
 //!
 //! IMPORTANT: invoke this build via `tools/toolchain/zig-bun build <step>`,
@@ -60,6 +60,38 @@ pub fn build(b: *std.Build) void {
         .omit_frame_pointer = false,
     });
 
+    const multiboot_module = b.createModule(.{
+        .root_source_file = b.path("kernel/core/multiboot.zig"),
+        .target = kernel_target,
+        .optimize = optimize,
+        .code_model = .kernel,
+        .red_zone = false,
+        .pic = false,
+        .stack_protector = false,
+        .stack_check = false,
+        .single_threaded = true,
+        .strip = false,
+        .omit_frame_pointer = false,
+    });
+
+    const mm_module = b.createModule(.{
+        .root_source_file = b.path("kernel/mm/mm.zig"),
+        .target = kernel_target,
+        .optimize = optimize,
+        .code_model = .kernel,
+        .red_zone = false,
+        .pic = false,
+        .stack_protector = false,
+        .stack_check = false,
+        .single_threaded = true,
+        .strip = false,
+        .omit_frame_pointer = false,
+        .imports = &.{
+            .{ .name = "arch", .module = arch_module },
+            .{ .name = "multiboot", .module = multiboot_module },
+        },
+    });
+
     const kernel_module = b.createModule(.{
         .root_source_file = b.path("kernel/core/main.zig"),
         .target = kernel_target,
@@ -74,6 +106,8 @@ pub fn build(b: *std.Build) void {
         .omit_frame_pointer = false,
         .imports = &.{
             .{ .name = "arch", .module = arch_module },
+            .{ .name = "mm", .module = mm_module },
+            .{ .name = "multiboot", .module = multiboot_module },
         },
     });
 
@@ -124,7 +158,7 @@ pub fn build(b: *std.Build) void {
     kernel_step.dependOn(&install_kernel32.step);
 
     // ── check-toolchain ──────────────────────────────────────────────────
-    const check = b.addSystemCommand(&.{ "tools/toolchain/check-bun-zig.sh" });
+    const check = b.addSystemCommand(&.{"tools/toolchain/check-bun-zig.sh"});
     check.setName("check-bun-zig");
     const check_step = b.step(
         "check-toolchain",
@@ -135,7 +169,7 @@ pub fn build(b: *std.Build) void {
     // ── validate-kernel-elf ──────────────────────────────────────────────
     // We validate the elf32 form since that is the file QEMU's `-kernel`
     // loader actually consumes.
-    const validate = b.addSystemCommand(&.{ "tools/kernel/validate-elf.sh" });
+    const validate = b.addSystemCommand(&.{"tools/kernel/validate-elf.sh"});
     validate.addFileArg(kernel32_path);
     validate.setName("validate-kernel-elf");
     const validate_step = b.step(
@@ -146,7 +180,7 @@ pub fn build(b: *std.Build) void {
     validate_step.dependOn(&install_kernel32.step);
 
     // ── qemu-smoke ───────────────────────────────────────────────────────
-    const qemu_run = b.addSystemCommand(&.{ "tools/qemu/run.sh" });
+    const qemu_run = b.addSystemCommand(&.{"tools/qemu/run.sh"});
     qemu_run.addFileArg(kernel32_path);
     qemu_run.setName("qemu-run");
     qemu_run.has_side_effects = true;
@@ -156,14 +190,14 @@ pub fn build(b: *std.Build) void {
         "tools/qemu/smoke_test.py",
         "zig-out/serial.log",
         "--phase",
-        "phase2",
+        "phase3",
     });
     smoke.setName("qemu-smoke-parse");
     smoke.step.dependOn(&qemu_run.step);
 
     const qemu_step = b.step(
         "qemu-smoke",
-        "Boot the kernel in QEMU and verify Phase 2 markers on COM1",
+        "Boot the kernel in QEMU and verify Phase 3 markers on COM1",
     );
     qemu_step.dependOn(&smoke.step);
 

@@ -7,8 +7,8 @@
  *
  * We:
  *   1. Set up an early stack.
- *   2. Build identity-mapped paging covering 0..1 GiB using one PML4 +
- *      one PDPT entry pointing at a single 1 GiB huge page.
+ *   2. Build identity-mapped paging covering 0..1 GiB using one PML4, one
+ *      PDPT, and 512 2 MiB page-directory entries.
  *   3. Enable PAE (CR4.PAE), set EFER.LME, enable paging (CR0.PG).
  *   4. Load a 64-bit GDT and far-jump to long mode.
  *   5. Reload data segments and call kmain.
@@ -25,14 +25,14 @@
  * at 4-byte alignment.
  *
  *   magic    = 0x1BADB002
- *   flags    = 0x00000000  (no extra requests; no aout kludge — we're ELF)
+ *   flags    = 0x00000002  (request memory info; no aout kludge — we're ELF)
  *   checksum = -(magic + flags)
  */
 .section .multiboot, "a"
 .align 4
 .long 0x1BADB002
-.long 0x00000000
-.long -(0x1BADB002 + 0x00000000)
+.long 0x00000002
+.long -(0x1BADB002 + 0x00000002)
 
 /* ─── BSS: stack + early page tables ─────────────────────────────────── */
 .section .bss
@@ -48,6 +48,14 @@ pml4:
     .skip 4096
 pdpt:
     .skip 4096
+pd:
+    .skip 4096
+
+.align 4
+multiboot_magic_saved:
+    .skip 4
+multiboot_info_saved:
+    .skip 4
 
 /* ─── 64-bit GDT (rodata) ─────────────────────────────────────────────
  * Three entries: null, 64-bit code, 64-bit data. In long mode the limit
@@ -77,21 +85,29 @@ _start:
     /* Establish a stack so we can call back into anything that needs one. */
     movl    $stack_top, %esp
 
-    /* Save the multiboot info pointer (EBX) and magic (EAX) for kmain.
-     * They go on the stack in reverse so the SysV AMD64 calling convention
-     * picks them up via RDI / RSI after we transition. We re-fetch them
-     * once we are in 64-bit mode. */
-    pushl   %ebx                /* multiboot info ptr */
-    pushl   %eax                /* multiboot magic */
+    /* Save the multiboot magic and info pointer before paging setup starts
+     * clobbering general registers. Long mode reloads them into RDI / RSI. */
+    movl    %eax, multiboot_magic_saved
+    movl    %ebx, multiboot_info_saved
 
-    /* ── Build identity paging: PML4[0] -> PDPT, PDPT[0] -> 1 GiB huge ── */
+    /* ── Build identity paging: PML4[0] -> PDPT[0] -> 512 x 2 MiB ── */
     movl    $pdpt, %eax
     orl     $0x3, %eax          /* present + writable */
     movl    %eax, pml4
 
-    /* PDPT[0] = 0x00000000 | P | RW | PS  (1 GiB huge page at 0) */
-    movl    $0x83, pdpt
-    movl    $0x00, pdpt+4
+    movl    $pd, %eax
+    orl     $0x3, %eax          /* present + writable */
+    movl    %eax, pdpt
+
+    xorl    %ecx, %ecx
+    movl    $0x83, %eax         /* P | RW | PS */
+.Lfill_pd:
+    movl    %eax, pd(,%ecx,8)
+    movl    $0x00, pd+4(,%ecx,8)
+    addl    $0x200000, %eax
+    incl    %ecx
+    cmpl    $512, %ecx
+    jne     .Lfill_pd
 
     /* CR3 = PML4 */
     movl    $pml4, %eax
@@ -137,18 +153,14 @@ long_mode_start:
     movw    $0x10, %ax
     movw    %ax, %ss
 
-    /* Re-establish the stack pointer in 64-bit mode. The 32-bit pushes
-     * we did earlier are still on the stack (now interpreted as 64-bit),
-     * but we don't need them yet — we just need a valid RSP. */
+    /* Re-establish the stack pointer in 64-bit mode. */
     movabsq $stack_top, %rsp
 
     /* Argument pass: kmain(magic: u32, info_ptr: u32) -> noreturn.
-     * The Multiboot info we saved earlier was 32-bit; re-read it from
-     * the original physical addresses by re-executing the convention.
-     * For Phase 1 we don't actually consume them, so pass zero/zero
-     * via the SysV AMD64 calling convention (RDI, RSI). */
-    xorq    %rdi, %rdi
-    xorq    %rsi, %rsi
+     * The bootloader supplies 32-bit physical values; identity paging keeps
+     * them directly addressable for early kernel code. */
+    movl    multiboot_magic_saved, %edi
+    movl    multiboot_info_saved, %esi
 
     /* Tail-call into the Zig kernel. */
     callq   kmain

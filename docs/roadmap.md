@@ -16,8 +16,8 @@ rejected.
 | 0     | Toolchain + smoke-test skeleton      | done         | `ci/local.sh` |
 | 1     | First boot                           | done         | QEMU smoke: `[ZIGIX:BOOT:START]` + `[ZIGIX:BOOT:OK]`, exit 33 |
 | 2     | Kernel logging, panic, test runner   | done         | `[ZIGIX:TEST:PASS:kernel_smoke]` |
-| 3     | Memory management                    | next         | `[ZIGIX:MM:OK]` |
-| 4     | Interrupts and timer                 | pending      | (folded into Phase 3 marker) |
+| 3     | Memory management                    | done         | `[ZIGIX:MM:OK]` |
+| 4     | Interrupts and timer                 | next         | (folded into Phase 3 marker) |
 | 5     | VFS and initramfs                    | pending      | `[ZIGIX:VFS:OK]` |
 | 6     | Syscall ABI v0                       | pending      | `[ZIGIX:SYSCALL:OK]` |
 | 7     | ELF64 static loader                  | pending      | `[ZIGIX:ELF:OK]` |
@@ -91,26 +91,25 @@ Hints from Phase 1 you should keep in mind:
 - Don't introduce dynamic allocation here. The test runner runs before
   Phase 3 ships an allocator.
 
-## Phase 3 — Memory management ⬅ start here
+## Phase 3 — Memory management ✅
 
 **Goal:** the kernel knows what physical memory exists and can hand out
 pages and small heap allocations.
 
-- Parse the multiboot1 memory map (`mbi->mmap_*`). The boot stub
-  currently passes `RDI=0, RSI=0` — change it to pass the real
-  `EAX/EBX` we saved on the 32-bit stack so `kmain` actually gets the
-  multiboot magic + info pointer.
-- Physical-page allocator: bitmap or stack of free 4 KiB frames over
+- [x] Parse the multiboot1 memory map (`mbi->mmap_*`). The boot stub
+  preserves the bootloader's `EAX/EBX` handoff values and passes them to
+  `kmain` as the multiboot magic + info pointer.
+- [x] Physical-page allocator: bitmap or stack of free 4 KiB frames over
   usable regions. Must reserve the kernel's own image and the multiboot
   info structure.
-- Page-table abstraction: replace the boot 1 GiB huge page with proper
+- [x] Page-table abstraction: replace the boot 1 GiB huge page with proper
   4 KiB / 2 MiB mappings; introduce `kernel/mm/paging.zig` with
   `mapPage`, `unmapPage`, `walk`. Identity map for now; high-half is
   Phase 8 territory.
-- Kernel heap: simple bump or freelist allocator on top of the page
+- [x] Kernel heap: simple bump or freelist allocator on top of the page
   allocator. Wire as the Zig allocator interface so future code can use
   `std.ArrayList` etc.
-- Marker: `[ZIGIX:MM:OK]` after self-test allocates and frees a page,
+- [x] Marker: `[ZIGIX:MM:OK]` after self-test allocates and frees a page,
   walks a virtual address, and round-trips a heap allocation.
 
 ## Phase 4 — Interrupts and timer
@@ -234,14 +233,12 @@ being triple-faults."
 
 The next thing to do, concretely:
 
-1. Run `ci/local.sh` to confirm the Phase 2 baseline still passes.
-2. Read `docs/architecture.md` § "Boot flow" and the Phase 3 notes above.
-3. Change the boot stub to pass the real multiboot magic and info pointer
-   into `kmain`.
-4. Parse the multiboot1 memory map, reserve the kernel image and bootloader
-   data, and land the first physical-page allocator self-test.
-5. Emit `[ZIGIX:MM:OK]` only after the allocator/page-walk/heap self-test
-   passes.
+1. Source `.env`, then run `ci/local.sh` to confirm the Phase 3 baseline
+   still passes.
+2. Read `docs/architecture.md` § "Boot flow" and the Phase 4 notes above.
+3. Add a kernel-owned GDT/IDT and a minimal exception path.
+4. Start with a catchable `#UD` self-test, then add timer setup once traps
+   are stable.
 
 Operational reminders for a fresh session:
 

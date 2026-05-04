@@ -15,6 +15,8 @@ const arch = @import("arch");
 const cpu = arch.cpu;
 const serial = arch.serial;
 const log = @import("log.zig");
+const mm = @import("mm");
+const multiboot = @import("multiboot");
 const panic_handler = @import("panic.zig");
 const kernel_tests = @import("tests.zig");
 const testing = @import("testing.zig");
@@ -24,16 +26,24 @@ const testing = @import("testing.zig");
 pub const panic = std.debug.FullPanic(panic_handler.handler);
 
 // Called from start.S `long_mode_start`. SysV AMD64: RDI = magic, RSI = info.
-// Phase 3 will consume the real multiboot values; until then the signature
-// keeps the handoff contract explicit.
+// The boot stub passes the real Multiboot1 handoff values.
 export fn kmain(magic: u64, info_ptr: u64) callconv(.c) noreturn {
-    _ = magic;
-    _ = info_ptr;
-
     serial.init();
     serial.writeLine("[ZIGIX:BOOT:START]");
     serial.writeLine("[ZIGIX:TOOLCHAIN:bun-zig=0.15.2]");
     log.println(.info, "kernel logger online", .{});
+
+    const boot_info = multiboot.validate(magic, info_ptr) catch |err| {
+        log.println(.err, "multiboot handoff invalid: {s}", .{@errorName(err)});
+        @panic("bad multiboot handoff");
+    };
+    const mm_stats = mm.physical.initFromMultiboot(boot_info);
+    mm.heap.init();
+    log.println(.info, "memory map usable={}KiB tracked_free_pages={}", .{
+        mm_stats.usable_bytes / 1024,
+        mm_stats.tracked_free_pages,
+    });
+
     testing.runAll(kernel_tests);
     serial.writeLine("[ZIGIX:BOOT:OK]");
 

@@ -3,11 +3,17 @@
 const arch = @import("arch");
 const serial = arch.serial;
 
+const mm = @import("mm");
 const testing = @import("testing.zig");
 
 pub const TEST_kernel_smoke = testing.Test{
     .name = "kernel_smoke",
     .run = kernelSmoke,
+};
+
+pub const TEST_memory_smoke = testing.Test{
+    .name = "memory_smoke",
+    .run = memorySmoke,
 };
 
 fn kernelSmoke() testing.TestError!void {
@@ -19,4 +25,45 @@ fn kernelSmoke() testing.TestError!void {
     if (after - before != "[ZIGIX:TEST:SERIAL_WRITE:kernel_smoke]".len + 1) {
         return error.SerialWriteLineTruncated;
     }
+}
+
+fn memorySmoke() testing.TestError!void {
+    const before = mm.physical.currentStats().tracked_free_pages;
+
+    const page = try mm.physical.allocPage();
+    if (page % mm.physical.PAGE_SIZE != 0) return error.PageNotAligned;
+    if (mm.physical.isPageFree(page)) return error.AllocatedPageStillFree;
+
+    const mapping = mm.paging.walk(page) orelse return error.PageWalkMissing;
+    if (mapping.physical != page) return error.PageWalkWrongPhysical;
+    if (!mapping.writable) return error.PageWalkReadOnly;
+
+    mm.physical.freePage(page);
+    if (!mm.physical.isPageFree(page)) return error.FreedPageStillUsed;
+    if (mm.physical.currentStats().tracked_free_pages != before) return error.PageFreeCountMismatch;
+
+    const allocator = mm.heap.allocator();
+    const bytes = try allocator.alloc(u8, 64);
+    bytes[0] = 0x5a;
+    bytes[63] = 0xa5;
+    if (bytes[0] != 0x5a or bytes[63] != 0xa5) return error.HeapRoundTripFailed;
+    allocator.free(bytes);
+
+    const mapped_page = try mm.physical.allocPage();
+    const mapped_virtual = 0x4000_0000; // First byte beyond the boot 1 GiB map.
+    try mm.paging.mapPage(mapped_virtual, mapped_page, true);
+
+    const mapped = mm.paging.walk(mapped_virtual) orelse return error.NewMappingMissing;
+    if (mapped.physical != mapped_page) return error.NewMappingWrongPhysical;
+    if (mapped.page_size != 4096) return error.NewMappingWrongSize;
+
+    const mapped_bytes: [*]volatile u8 = @ptrFromInt(mapped_virtual);
+    mapped_bytes[0] = 0xc3;
+    if (mapped_bytes[0] != 0xc3) return error.NewMappingRoundTripFailed;
+
+    try mm.paging.unmapPage(mapped_virtual);
+    if (mm.paging.walk(mapped_virtual) != null) return error.UnmappedPageStillPresent;
+    mm.physical.freePage(mapped_page);
+
+    serial.writeLine("[ZIGIX:MM:OK]");
 }

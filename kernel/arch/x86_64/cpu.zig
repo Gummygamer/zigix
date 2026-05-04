@@ -15,6 +15,12 @@ pub inline fn inb(port: u16) u8 {
     );
 }
 
+pub inline fn readCr3() usize {
+    return asm volatile ("mov %%cr3, %[result]"
+        : [result] "=r" (-> usize),
+    );
+}
+
 pub inline fn halt() noreturn {
     while (true) asm volatile ("hlt");
 }

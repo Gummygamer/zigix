@@ -12,6 +12,7 @@ OUTPUT_ARCH(i386:x86-64)
 SECTIONS
 {
     . = 0x100000;
+    __kernel_start = .;
 
     /* Multiboot header MUST be in the first 8 KiB of the file at 4-byte
      * alignment. Putting it first guarantees that. */
@@ -40,6 +41,7 @@ SECTIONS
         *(COMMON)
         *(.bss .bss.*)
     }
+    __kernel_end = .;
 
     /DISCARD/ :
     {
