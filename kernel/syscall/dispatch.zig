@@ -4,6 +4,7 @@ const std = @import("std");
 
 const arch = @import("arch");
 const fs = @import("fs");
+const proc = @import("proc");
 
 const errno = @import("errno.zig");
 const numbers = @import("numbers.zig");
@@ -143,13 +144,13 @@ var current_process: Process = .{};
 pub fn init() void {
     for (&open_files) |*slot| slot.* = .{};
     for (&pipes) |*slot| slot.* = .{};
+    proc.init();
     current_process.init();
 }
 
 pub fn invoke(num: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64) i64 {
     _ = arg5;
     _ = arg4;
-    _ = arg3;
     return switch (num) {
         numbers.read => sysRead(arg0, arg1, arg2),
         numbers.write => sysWrite(arg0, arg1, arg2),
@@ -161,6 +162,7 @@ pub fn invoke(num: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64, a
         numbers.pipe => sysPipe(arg0),
         numbers.dup => sysDup(arg0),
         numbers.exit => sysExit(arg0),
+        numbers.wait4 => sysWait4(arg0, arg1, arg2, arg3),
         else => errno.fail(errno.NOSYS),
     };
 }
@@ -332,8 +334,22 @@ fn sysDup(fd_arg: u64) i64 {
     return @intCast(new_fd);
 }
 
+fn sysWait4(pid_arg: u64, status_ptr: u64, options: u64, rusage_ptr: u64) i64 {
+    if (rusage_ptr != 0) return errno.fail(errno.INVAL);
+    const requested_pid: i64 = @bitCast(pid_arg);
+    const status_out = if (status_ptr == 0) null else userInt(status_ptr) orelse return errno.fail(errno.FAULT);
+    const waited = proc.wait4(proc.currentPid(), requested_pid, status_out, options) catch |err| {
+        return errno.fail(switch (err) {
+            error.InvalidArgument => errno.INVAL,
+            error.NoChild => errno.CHILD,
+            error.TableFull => errno.NFILE,
+        });
+    };
+    return @intCast(waited);
+}
+
 fn sysExit(status: u64) noreturn {
-    _ = status;
+    _ = proc.markExited(proc.currentPid(), status);
     arch.interrupts.disable();
     cpu.outb(0xF4, 0x10);
     cpu.halt();
@@ -462,6 +478,11 @@ fn userStat(ptr: u64) ?*Stat {
 }
 
 fn userFdPair(ptr: u64) ?*[2]i32 {
+    if (ptr == 0) return null;
+    return @ptrFromInt(ptr);
+}
+
+fn userInt(ptr: u64) ?*i32 {
     if (ptr == 0) return null;
     return @ptrFromInt(ptr);
 }

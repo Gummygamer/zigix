@@ -22,8 +22,9 @@ rejected.
 | 6     | Syscall ABI v0                       | done         | `[ZIGIX:SYSCALL:OK]` |
 | 7     | ELF64 static loader                  | done         | `[ZIGIX:ELF:OK]` |
 | 8     | User mode + init                     | done         | `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
-| 9     | File descriptors and basic Unix I/O  | in progress  | `[ZIGIX:TEST:PASS:syscall_fd_table]`, `[ZIGIX:TEST:PASS:syscall_pipe]` |
-| 10–15 | Userspace expansion                  | pending      | per-phase markers TBD |
+| 9     | File descriptors and basic Unix I/O  | done         | `[ZIGIX:TEST:PASS:syscall_fd_table]`, `[ZIGIX:TEST:PASS:syscall_pipe]` |
+| 10    | `exec` and process lifecycle         | in progress  | `[ZIGIX:TEST:PASS:process_lifecycle]` |
+| 11–15 | Userspace expansion                  | pending      | per-phase markers TBD |
 
 ## Phase 0 — Toolchain and smoke-test skeleton ✅
 
@@ -198,9 +199,12 @@ userspace phases.
 
 ## Phase 10 — `exec` and process lifecycle
 
-- `fork` (or just `posix_spawn` if `fork` proves too painful for the
+- [x] Process table, pid allocator.
+- [x] `wait4` reaps exited children in the process table.
+- [ ] `fork` (or just `posix_spawn` if `fork` proves too painful for the
   current paging design), `execve`, `waitpid`, `_exit`.
-- Process table, pid allocator.
+- [ ] Real blocking `waitpid`/`wait4` once scheduling can park and wake
+  processes.
 
 ## Phase 11 — Tiny shell
 
@@ -243,12 +247,14 @@ userspace phases.
 
 The next thing to do, concretely:
 
-1. Source `.env`, then run `ci/local.sh` to confirm the Phase 9 smoke
+1. Source `.env`, then run `ci/local.sh` to confirm the Phase 10 smoke
    still passes.
-2. Read the Phase 9 notes above.
-3. Add blocking pipe semantics after the process lifecycle work gives the
-   kernel something to block and wake.
-4. Decide how writable files should fit the current read-only initramfs/memfs
+2. Read the Phase 10 notes above.
+3. Continue Phase 10 by deciding whether `fork` or `posix_spawn` fits the
+   current paging design, then wire `execve` around the static ELF loader.
+4. Add blocking pipe semantics after the scheduler/process lifecycle work gives
+   the kernel something to block and wake.
+5. Decide how writable files should fit the current read-only initramfs/memfs
    model before expanding inode write support.
 
 Operational reminders for a fresh session:

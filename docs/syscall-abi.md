@@ -31,6 +31,7 @@ The syscall layer uses Linux errno numbers for the exposed set:
 | `ENOENT` | 2 |
 | `EIO` | 5 |
 | `EBADF` | 9 |
+| `ECHILD` | 10 |
 | `EFAULT` | 14 |
 | `ENOTDIR` | 20 |
 | `EISDIR` | 21 |
@@ -54,6 +55,7 @@ The syscall layer uses Linux errno numbers for the exposed set:
 | 22 | `pipe` | `int pipe(int pipefd[2])` |
 | 32 | `dup` | `int dup(int oldfd)` |
 | 60 | `exit` | `void exit(int status)` |
+| 61 | `wait4` | `pid_t wait4(pid_t pid, int *wstatus, int options, void *rusage)` |
 
 ### `read`
 
@@ -115,6 +117,15 @@ semantics.
 
 Errors: `EBADF`, `ENFILE`.
 
+### `wait4`
+
+Reaps an already-exited child process. Phase 10 supports `pid > 0` and
+`pid == -1`, `options == 0`, and `rusage == NULL`. The status word uses the
+normal Unix exited-process layout: low eight bits of the exit code shifted left
+by eight. Blocking wait semantics remain future scheduler work.
+
+Errors: `ECHILD`, `EINVAL`, `EFAULT`.
+
 ### `stat` / `fstat`
 
 Fills `struct zigix_stat`, a small fixed layout used until libc work decides
@@ -157,3 +168,6 @@ close-on-exec metadata.
 The pipe slice adds `syscall_pipe`, covering `pipe`, read/write round-trips,
 endpoint access checks, duplicated write endpoints, EOF after writers close,
 and `EPIPE` after all read endpoints close.
+
+The first Phase 10 lifecycle slice adds `process_lifecycle`, covering PID
+allocation, child exit state, `wait4` status reporting, and one-shot reaping.

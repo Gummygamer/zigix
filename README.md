@@ -20,12 +20,13 @@ OS with:
 
 ## Status
 
-Phase 9 is in progress: Zigix boots under QEMU, initializes memory management
+Phase 10 is in progress: Zigix boots under QEMU, initializes memory management
 and interrupts, mounts a Multiboot-loaded initramfs on a small VFS/memfs root,
 installs syscall ABI v0, validates a static ELF64 load plan, maps and enters a
 freestanding ring-3 `/init`, emits `[ZIGIX:INIT:START]` and
 `[ZIGIX:INIT:OK]` through syscalls, and has per-process descriptor tables,
-`dup`, close-on-exec metadata, and basic pipe read/write coverage.
+`dup`, close-on-exec metadata, basic pipe read/write coverage, and the first
+process-table/PID lifecycle slice with `wait4` reaping coverage.
 
 See [`docs/roadmap.md`](docs/roadmap.md) for the phased plan and
 [`docs/bun-zig-toolchain.md`](docs/bun-zig-toolchain.md) for the toolchain
@@ -55,7 +56,7 @@ The build entry points are intentionally thin:
 | `tools/toolchain/check-bun-zig.sh`     | Verify the Bun Zig toolchain is configured. Logs identity.       |
 | `tools/toolchain/zig-bun build check-toolchain` | Same check, via `build.zig`. Requires Bun Zig to run.   |
 | `tools/toolchain/zig-bun build host-test`       | Run host-side unit tests.                                       |
-| `tools/toolchain/zig-bun build qemu-smoke`      | Boot the kernel in QEMU and verify Phase 9 serial markers.      |
+| `tools/toolchain/zig-bun build qemu-smoke`      | Boot the kernel in QEMU and verify Phase 10 serial markers.     |
 | `ci/local.sh`                          | Run all host-side checks.                                        |
 
 QEMU smoke runs are headless and machine-readable. See

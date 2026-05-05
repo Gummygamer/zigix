@@ -5,6 +5,7 @@ pub const NOENT: i64 = 2;
 pub const INTR: i64 = 4;
 pub const IO: i64 = 5;
 pub const BADF: i64 = 9;
+pub const CHILD: i64 = 10;
 pub const FAULT: i64 = 14;
 pub const INVAL: i64 = 22;
 pub const NOSYS: i64 = 38;

@@ -7,6 +7,7 @@ const serial = arch.serial;
 
 const elf = @import("elf");
 const mm = @import("mm");
+const proc = @import("proc");
 const syscall = @import("syscall");
 const testing = @import("testing.zig");
 
@@ -48,6 +49,11 @@ pub const TEST_syscall_fd_table = testing.Test{
 pub const TEST_syscall_pipe = testing.Test{
     .name = "syscall_pipe",
     .run = syscallPipe,
+};
+
+pub const TEST_process_lifecycle = testing.Test{
+    .name = "process_lifecycle",
+    .run = processLifecycle,
 };
 
 pub const TEST_elf_static_loader = testing.Test{
@@ -271,6 +277,27 @@ fn syscallPipe() testing.TestError!void {
     }
     if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(closed_read_fds[1]), 0, 0, 0, 0, 0) != 0) {
         return error.SyscallPipeCloseFailed;
+    }
+}
+
+fn processLifecycle() testing.TestError!void {
+    const any_child = try proc.spawnChild(proc.currentPid());
+    if (!proc.markExited(any_child, 3)) return error.ProcessExitFailed;
+
+    var status: i32 = 0;
+    const any_waited = syscall.dispatch.invoke(syscall.numbers.wait4, @bitCast(@as(i64, -1)), @intFromPtr(&status), 0, 0, 0, 0);
+    if (any_waited != any_child) return error.ProcessWaitAnyFailed;
+    if (status != 3 << 8) return error.ProcessWaitStatusWrong;
+
+    const child = try proc.spawnChild(proc.currentPid());
+    if (!proc.markExited(child, 7)) return error.ProcessExitFailed;
+
+    const waited = syscall.dispatch.invoke(syscall.numbers.wait4, child, @intFromPtr(&status), 0, 0, 0, 0);
+    if (waited != child) return error.ProcessWaitFailed;
+    if (status != 7 << 8) return error.ProcessWaitStatusWrong;
+
+    if (syscall.dispatch.invoke(syscall.numbers.wait4, child, @intFromPtr(&status), 0, 0, 0, 0) != -syscall.errno.CHILD) {
+        return error.ProcessDoubleWaitSucceeded;
     }
 }
 

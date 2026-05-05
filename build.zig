@@ -1,10 +1,10 @@
 //! Zigix build orchestration.
 //!
-//! Phase 9 steps:
+//! Phase 10 steps:
 //!   * `check-toolchain`     -- runs the host-side toolchain check script.
 //!   * `kernel`              -- builds zig-out/bin/zigix-kernel (multiboot1 ELF).
 //!   * `validate-kernel-elf` -- sanity-checks the ELF (32-bit ELF check, multiboot magic).
-//!   * `qemu-smoke`          -- boots the kernel headlessly and parses Phase 9 serial markers.
+//!   * `qemu-smoke`          -- boots the kernel headlessly and parses Phase 10 serial markers.
 //!   * `host-test`           -- runs host-side unit tests.
 //!
 //! IMPORTANT: invoke this build via `tools/toolchain/zig-bun build <step>`,
@@ -109,6 +109,20 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const proc_module = b.createModule(.{
+        .root_source_file = b.path("kernel/proc/process.zig"),
+        .target = kernel_target,
+        .optimize = optimize,
+        .code_model = .kernel,
+        .red_zone = false,
+        .pic = false,
+        .stack_protector = false,
+        .stack_check = false,
+        .single_threaded = true,
+        .strip = false,
+        .omit_frame_pointer = false,
+    });
+
     const syscall_module = b.createModule(.{
         .root_source_file = b.path("kernel/syscall/syscall.zig"),
         .target = kernel_target,
@@ -124,6 +138,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "arch", .module = arch_module },
             .{ .name = "fs", .module = fs_module },
+            .{ .name = "proc", .module = proc_module },
         },
     });
 
@@ -163,6 +178,7 @@ pub fn build(b: *std.Build) void {
             .{ .name = "elf", .module = elf_module },
             .{ .name = "mm", .module = mm_module },
             .{ .name = "multiboot", .module = multiboot_module },
+            .{ .name = "proc", .module = proc_module },
             .{ .name = "syscall", .module = syscall_module },
         },
     });
@@ -289,14 +305,14 @@ pub fn build(b: *std.Build) void {
         "tools/qemu/smoke_test.py",
         "zig-out/serial.log",
         "--phase",
-        "phase9",
+        "phase10",
     });
     smoke.setName("qemu-smoke-parse");
     smoke.step.dependOn(&qemu_run.step);
 
     const qemu_step = b.step(
         "qemu-smoke",
-        "Boot the kernel in QEMU and verify Phase 9 markers on COM1",
+        "Boot the kernel in QEMU and verify Phase 10 markers on COM1",
     );
     qemu_step.dependOn(&smoke.step);
 

@@ -51,6 +51,10 @@ PHASES: dict[str, list[str]] = {
         "[ZIGIX:TEST:PASS:syscall_fd_table]",
         "[ZIGIX:TEST:PASS:syscall_pipe]",
     ],
+    "phase10": [
+        "[ZIGIX:BOOT:OK]",
+        "[ZIGIX:TEST:PASS:process_lifecycle]",
+    ],
 }
 
 
