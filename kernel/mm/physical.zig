@@ -110,6 +110,12 @@ fn reserveMultibootInfo(info: *const multiboot.Info) void {
 
     if (info.mods_count != 0 and info.mods_addr != 0) {
         reserveRange(info.mods_addr, @as(u64, info.mods_count) * 16);
+        var modules = multiboot.moduleIterator(info);
+        while (modules.next()) |module| {
+            if (module.mod_end > module.mod_start) {
+                reserveRange(module.mod_start, module.mod_end - module.mod_start);
+            }
+        }
     }
 }
 

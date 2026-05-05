@@ -18,8 +18,8 @@ rejected.
 | 2     | Kernel logging, panic, test runner   | done         | `[ZIGIX:TEST:PASS:kernel_smoke]` |
 | 3     | Memory management                    | done         | `[ZIGIX:MM:OK]` |
 | 4     | Interrupts and timer                 | done         | `[ZIGIX:TEST:PASS:exception_caught]` |
-| 5     | VFS and initramfs                    | next         | `[ZIGIX:VFS:OK]` |
-| 6     | Syscall ABI v0                       | pending      | `[ZIGIX:SYSCALL:OK]` |
+| 5     | VFS and initramfs                    | done         | `[ZIGIX:VFS:OK]` |
+| 6     | Syscall ABI v0                       | next         | `[ZIGIX:SYSCALL:OK]` |
 | 7     | ELF64 static loader                  | pending      | `[ZIGIX:ELF:OK]` |
 | 8     | User mode + init                     | pending      | `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 9–15  | Userspace expansion                  | pending      | per-phase markers TBD |
@@ -133,16 +133,16 @@ being triple-faults."
 
 ## Phase 5 — VFS and initramfs
 
-- VFS interface: `Inode`, `Dir`, `File`, `mount`, `lookup`, `read`,
+- [x] VFS interface: `Inode`, `Dir`, `File`, `mount`, `lookup`, `read`,
   `readdir`. Memory-only for now; no disk driver yet.
-- `memfs` backing the root.
-- `initramfs` format: keep it dirt-simple (cpio newc or a custom TLV
+- [x] `memfs` backing the root.
+- [x] `initramfs` format: keep it dirt-simple (cpio newc or a custom TLV
   with a 1-page header); a host-side packer in `tools/mkinitramfs/`.
-- Path normalization with host-side unit tests in `tests/host/` that
+- [x] Path normalization with host-side unit tests in `tests/host/` that
   exercise edge cases (`..` past root, trailing slash, double slash,
   empty component). These run via `host-test` and don't require QEMU.
-- Boot-time mount of the initramfs blob shipped via multiboot1 modules.
-- Marker: `[ZIGIX:VFS:OK]` after `lookup("/init")` succeeds.
+- [x] Boot-time mount of the initramfs blob shipped via multiboot1 modules.
+- [x] Marker: `[ZIGIX:VFS:OK]` after `lookup("/init")` succeeds.
 
 ## Phase 6 — Syscall ABI v0
 
@@ -234,11 +234,11 @@ being triple-faults."
 The next thing to do, concretely:
 
 1. Source `.env`, then run `ci/local.sh` to confirm the Phase 4 baseline
-   still passes.
-2. Read `docs/architecture.md` § "Boot flow" and the Phase 5 notes above.
-3. Add the VFS interfaces and an in-memory filesystem.
-4. Add an initramfs format and mount path, then emit `[ZIGIX:VFS:OK]`
-   after `lookup("/init")` succeeds.
+   and Phase 5 VFS smoke still pass.
+2. Read `docs/syscall-abi.md` and the Phase 6 notes above.
+3. Specify syscall numbers/registers in `docs/syscall-abi.md`.
+4. Add the syscall entry/dispatcher skeleton and emit `[ZIGIX:SYSCALL:OK]`
+   from a kernel self-test.
 
 Operational reminders for a fresh session:
 

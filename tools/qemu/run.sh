@@ -10,6 +10,7 @@
 set -euo pipefail
 
 KERNEL="${1:-zig-out/bin/zigix-kernel}"
+INITRD="${2:-}"
 LOG="${ZIGIX_SERIAL_LOG:-zig-out/serial.log}"
 TIMEOUT_SEC="${ZIGIX_QEMU_TIMEOUT:-30}"
 
@@ -19,6 +20,12 @@ if [[ ! -f "$KERNEL" ]]; then
   printf '[zigix-qemu] kernel not built yet: %s\n' "$KERNEL" >&2
   printf '[ZIGIX:TEST:FAIL:qemu_smoke:kernel_not_built]\n' | tee "$LOG" >&2
   exit 3
+fi
+
+if [[ -n "$INITRD" && ! -f "$INITRD" ]]; then
+  printf '[zigix-qemu] initramfs not built yet: %s\n' "$INITRD" >&2
+  printf '[ZIGIX:TEST:FAIL:qemu_smoke:initramfs_not_built]\n' | tee "$LOG" >&2
+  exit 5
 fi
 
 if ! command -v qemu-system-x86_64 >/dev/null; then
@@ -42,6 +49,10 @@ QEMU_ARGS=(
   -device isa-debug-exit,iobase=0xf4,iosize=0x04
   -kernel "$KERNEL"
 )
+
+if [[ -n "$INITRD" ]]; then
+  QEMU_ARGS+=(-initrd "$INITRD")
+fi
 
 printf '[zigix-qemu] running: qemu-system-x86_64 %s\n' "${QEMU_ARGS[*]}" >&2
 

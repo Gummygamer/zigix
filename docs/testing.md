@@ -20,8 +20,7 @@ tools/toolchain/check-bun-zig.sh
 
 ## Layer 1 — Pure Zig unit tests
 
-Run on the host with `zig build test` once Phase 1 lands a `build.zig` that can
-register tests. Targets:
+Run on the host with `tools/toolchain/zig-bun build host-test`. Targets:
 
 - Data structures.
 - Path normalization.

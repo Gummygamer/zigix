@@ -1,11 +1,11 @@
 //! Zigix build orchestration.
 //!
-//! Phase 4 steps:
+//! Phase 5 steps:
 //!   * `check-toolchain`     -- runs the host-side toolchain check script.
 //!   * `kernel`              -- builds zig-out/bin/zigix-kernel (multiboot1 ELF).
 //!   * `validate-kernel-elf` -- sanity-checks the ELF (32-bit ELF check, multiboot magic).
-//!   * `qemu-smoke`          -- boots the kernel headlessly and parses Phase 4 serial markers.
-//!   * `host-test`           -- placeholder (no host tests yet).
+//!   * `qemu-smoke`          -- boots the kernel headlessly and parses Phase 5 serial markers.
+//!   * `host-test`           -- runs host-side unit tests.
 //!
 //! IMPORTANT: invoke this build via `tools/toolchain/zig-bun build <step>`,
 //! not `zig build` directly. The wrapper enforces the Bun-fork toolchain
@@ -92,6 +92,23 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const fs_module = b.createModule(.{
+        .root_source_file = b.path("kernel/fs/fs.zig"),
+        .target = kernel_target,
+        .optimize = optimize,
+        .code_model = .kernel,
+        .red_zone = false,
+        .pic = false,
+        .stack_protector = false,
+        .stack_check = false,
+        .single_threaded = true,
+        .strip = false,
+        .omit_frame_pointer = false,
+        .imports = &.{
+            .{ .name = "multiboot", .module = multiboot_module },
+        },
+    });
+
     const kernel_module = b.createModule(.{
         .root_source_file = b.path("kernel/core/main.zig"),
         .target = kernel_target,
@@ -106,6 +123,7 @@ pub fn build(b: *std.Build) void {
         .omit_frame_pointer = false,
         .imports = &.{
             .{ .name = "arch", .module = arch_module },
+            .{ .name = "fs", .module = fs_module },
             .{ .name = "mm", .module = mm_module },
             .{ .name = "multiboot", .module = multiboot_module },
         },
@@ -151,12 +169,25 @@ pub fn build(b: *std.Build) void {
         "zigix-kernel.mb",
     );
 
+    // ── Phase 5 initramfs ────────────────────────────────────────────────
+    const pack_initramfs = b.addSystemCommand(&.{ "python3", "tools/mkinitramfs/pack.py" });
+    const initramfs_path = pack_initramfs.addOutputFileArg("initramfs.zixr");
+    pack_initramfs.addArg("init=userspace/init/init.txt");
+    pack_initramfs.setName("mkinitramfs");
+
+    const install_initramfs = b.addInstallFileWithDir(
+        initramfs_path,
+        .bin,
+        "initramfs.zixr",
+    );
+
     const kernel_step = b.step(
         "kernel",
         "Build the Zigix kernel ELF and the multiboot1-loadable elf32 form",
     );
     kernel_step.dependOn(&install_kernel.step);
     kernel_step.dependOn(&install_kernel32.step);
+    kernel_step.dependOn(&install_initramfs.step);
 
     // ── check-toolchain ──────────────────────────────────────────────────
     const check = b.addSystemCommand(&.{"tools/toolchain/check-bun-zig.sh"});
@@ -183,6 +214,7 @@ pub fn build(b: *std.Build) void {
     // ── qemu-smoke ───────────────────────────────────────────────────────
     const qemu_run = b.addSystemCommand(&.{"tools/qemu/run.sh"});
     qemu_run.addFileArg(kernel32_path);
+    qemu_run.addFileArg(initramfs_path);
     qemu_run.setName("qemu-run");
     qemu_run.has_side_effects = true;
     qemu_run.step.dependOn(&install_kernel32.step);
@@ -191,20 +223,41 @@ pub fn build(b: *std.Build) void {
         "tools/qemu/smoke_test.py",
         "zig-out/serial.log",
         "--phase",
-        "phase4",
+        "phase5",
     });
     smoke.setName("qemu-smoke-parse");
     smoke.step.dependOn(&qemu_run.step);
 
     const qemu_step = b.step(
         "qemu-smoke",
-        "Boot the kernel in QEMU and verify Phase 4 markers on COM1",
+        "Boot the kernel in QEMU and verify Phase 5 markers on COM1",
     );
     qemu_step.dependOn(&smoke.step);
 
-    // ── host-test placeholder ────────────────────────────────────────────
-    _ = b.step(
+    // ── host-test ────────────────────────────────────────────────────────
+    const host_path_module = b.createModule(.{
+        .root_source_file = b.path("tests/host/path.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{
+            .{
+                .name = "fs_path",
+                .module = b.createModule(.{
+                    .root_source_file = b.path("kernel/fs/path.zig"),
+                    .target = b.graph.host,
+                    .optimize = optimize,
+                }),
+            },
+        },
+    });
+    const host_path_tests = b.addTest(.{
+        .root_module = host_path_module,
+    });
+    const run_host_path_tests = b.addRunArtifact(host_path_tests);
+
+    const host_step = b.step(
         "host-test",
-        "Run host-side unit tests (none registered yet)",
+        "Run host-side unit tests",
     );
+    host_step.dependOn(&run_host_path_tests.step);
 }

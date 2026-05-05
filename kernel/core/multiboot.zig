@@ -3,6 +3,7 @@
 pub const MAGIC: u32 = 0x2BADB002;
 
 const FLAG_MEM = 1 << 0;
+const FLAG_MODS = 1 << 3;
 const FLAG_MMAP = 1 << 6;
 
 pub const Error = error{
@@ -44,6 +45,24 @@ pub const Info = extern struct {
 
     pub fn hasMemoryMap(self: *const Info) bool {
         return (self.flags & FLAG_MMAP) != 0 and self.mmap_addr != 0 and self.mmap_length != 0;
+    }
+
+    pub fn hasModules(self: *const Info) bool {
+        return (self.flags & FLAG_MODS) != 0 and self.mods_count != 0 and self.mods_addr != 0;
+    }
+};
+
+pub const Module = extern struct {
+    mod_start: u32,
+    mod_end: u32,
+    string: u32,
+    reserved: u32,
+
+    pub fn bytes(self: *const Module) []const u8 {
+        const start: usize = @intCast(self.mod_start);
+        const end: usize = @intCast(self.mod_end);
+        const ptr: [*]const u8 = @ptrFromInt(start);
+        return ptr[0 .. end - start];
     }
 };
 
@@ -95,6 +114,19 @@ pub const MmapIterator = struct {
     }
 };
 
+pub const ModuleIterator = struct {
+    cursor: usize,
+    remaining: usize,
+
+    pub fn next(self: *ModuleIterator) ?*const Module {
+        if (self.remaining == 0) return null;
+        const module: *const Module = @ptrFromInt(self.cursor);
+        self.cursor += @sizeOf(Module);
+        self.remaining -= 1;
+        return module;
+    }
+};
+
 pub fn validate(magic: u64, info_ptr: u64) Error!*const Info {
     if (@as(u32, @truncate(magic)) != MAGIC) return error.BadMagic;
     if (info_ptr == 0) return error.MissingInfo;
@@ -111,4 +143,17 @@ pub fn mmapIterator(info: *const Info) MmapIterator {
         .cursor = start,
         .end = start + @as(usize, @intCast(info.mmap_length)),
     };
+}
+
+pub fn moduleIterator(info: *const Info) ModuleIterator {
+    if (!info.hasModules()) return .{ .cursor = 0, .remaining = 0 };
+    return .{
+        .cursor = @intCast(info.mods_addr),
+        .remaining = @intCast(info.mods_count),
+    };
+}
+
+pub fn firstModule(info: *const Info) ?*const Module {
+    var it = moduleIterator(info);
+    return it.next();
 }
