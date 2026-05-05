@@ -35,6 +35,21 @@ zigix_ltr:
     retq
 .size zigix_ltr, . - zigix_ltr
 
+.global zigix_enter_user
+.type zigix_enter_user, @function
+zigix_enter_user:
+    movw    $0x23, %ax
+    movw    %ax, %ds
+    movw    %ax, %es
+    pushq   $0x23
+    pushq   %rsi
+    pushfq
+    orq     $0x200, (%rsp)
+    pushq   $0x1b
+    pushq   %rdi
+    iretq
+.size zigix_enter_user, . - zigix_enter_user
+
 .macro SAVE_GPRS
     pushq   %rax
     pushq   %rbx

@@ -73,9 +73,14 @@ for the rationale.
 8. `kmain` mounts the first Multiboot1 module as the initramfs, exposes it
    through the VFS/memfs root, and emits `[ZIGIX:VFS:OK]` after `/init`
    resolves.
-9. `kmain` writes `0x10` to the `isa-debug-exit` device on port `0xF4`,
-   causing QEMU to exit with status `33` so CI finishes in milliseconds
-   instead of waiting for the harness timeout.
+9. Kernel sets up the syscall table and prints `[ZIGIX:SYSCALL:OK]`.
+10. Kernel validates ELF loading with `[ZIGIX:ELF:OK]`.
+11. Kernel loads `/init` from initramfs, maps its static ELF64 segments into
+   user pages, and drops to ring 3 with `iretq`.
+12. Init prints `[ZIGIX:INIT:START]` and `[ZIGIX:INIT:OK]` through
+   `write(1, ...)`, then exits through syscall ABI v0. The kernel handles
+   `exit(0)` by writing `0x10` to the `isa-debug-exit` device on port `0xF4`,
+   causing QEMU to exit with status `33`.
 
 ### ELF format quirk
 
@@ -91,8 +96,7 @@ mode and accepts them.
 
 ## Boot flow (later phases — not yet implemented)
 
-10. Kernel sets up the syscall table and prints `[ZIGIX:SYSCALL:OK]`.
-11. Kernel loads `/init` from initramfs and drops to user mode.
-12. Init prints `[ZIGIX:INIT:OK]`.
+13. Scheduler and process lifecycle replace the one-shot init handoff.
+14. Per-process file tables and pipes replace the global descriptor table.
 
 Each step is a phase in the roadmap.

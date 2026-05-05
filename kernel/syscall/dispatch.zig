@@ -9,6 +9,7 @@ const errno = @import("errno.zig");
 const numbers = @import("numbers.zig");
 
 const serial = arch.serial;
+const cpu = arch.cpu;
 
 const MAX_FDS: usize = 16;
 const MAX_PATH_BYTES: usize = 256;
@@ -31,11 +32,8 @@ pub const Stat = extern struct {
 };
 
 var fd_table: [MAX_FDS]?fs.vfs.File = [_]?fs.vfs.File{null} ** MAX_FDS;
-var last_exit_status: i32 = 0;
-
 pub fn init() void {
     for (&fd_table) |*slot| slot.* = null;
-    last_exit_status = 0;
 }
 
 pub fn invoke(num: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64) i64 {
@@ -178,9 +176,11 @@ fn sysFstat(fd_arg: u64, stat_ptr: u64) i64 {
     return 0;
 }
 
-fn sysExit(status: u64) i64 {
-    last_exit_status = @intCast(status & 0xff);
-    return 0;
+fn sysExit(status: u64) noreturn {
+    _ = status;
+    arch.interrupts.disable();
+    cpu.outb(0xF4, 0x10);
+    cpu.halt();
 }
 
 fn statFor(inode: *const fs.vfs.Inode) Stat {

@@ -6,6 +6,7 @@ const physical = @import("physical.zig");
 
 const PRESENT: u64 = 1 << 0;
 const WRITABLE: u64 = 1 << 1;
+const USER: u64 = 1 << 2;
 const HUGE: u64 = 1 << 7;
 const ADDR_MASK: u64 = 0x000f_ffff_ffff_f000;
 
@@ -65,21 +66,40 @@ pub fn walk(virtual_addr: usize) ?Mapping {
 }
 
 pub fn mapPage(virtual_addr: usize, physical_addr: usize, writable: bool) MapError!void {
+    return mapPageInternal(virtual_addr, physical_addr, .{
+        .writable = writable,
+        .user = false,
+    });
+}
+
+pub fn mapUserPage(virtual_addr: usize, physical_addr: usize, writable: bool) MapError!void {
+    return mapPageInternal(virtual_addr, physical_addr, .{
+        .writable = writable,
+        .user = true,
+    });
+}
+
+const MapOptions = struct {
+    writable: bool,
+    user: bool,
+};
+
+fn mapPageInternal(virtual_addr: usize, physical_addr: usize, options: MapOptions) MapError!void {
     if (virtual_addr % PAGE_4K != 0 or physical_addr % PAGE_4K != 0) {
         return error.NotAligned;
     }
 
     const pml4 = activePml4();
-    const pdpt = try ensureChildTable(&pml4[pml4Index(virtual_addr)]);
-    const pd = try ensureChildTable(&pdpt[pdptIndex(virtual_addr)]);
+    const pdpt = try ensureChildTable(&pml4[pml4Index(virtual_addr)], options.user);
+    const pd = try ensureChildTable(&pdpt[pdptIndex(virtual_addr)], options.user);
     const pde = &pd[pdIndex(virtual_addr)];
     if ((pde.* & HUGE) != 0) return error.Unsupported;
 
-    const pt = try ensureChildTable(pde);
+    const pt = try ensureChildTable(pde, options.user);
     const pte = &pt[ptIndex(virtual_addr)];
     if ((pte.* & PRESENT) != 0) return error.AlreadyMapped;
 
-    pte.* = @as(u64, physical_addr) | PRESENT | if (writable) WRITABLE else 0;
+    pte.* = @as(u64, physical_addr) | entryFlags(options);
 }
 
 pub fn unmapPage(virtual_addr: usize) MapError!void {
@@ -109,16 +129,24 @@ fn activePml4() [*]u64 {
     return @ptrFromInt(cpu.readCr3() & ~@as(usize, 0xfff));
 }
 
-fn ensureChildTable(entry: *u64) MapError![*]u64 {
+fn ensureChildTable(entry: *u64, user: bool) MapError![*]u64 {
     if ((entry.* & PRESENT) != 0) {
         if ((entry.* & HUGE) != 0) return error.Unsupported;
+        if (user) entry.* |= USER;
         return tableFromEntry(entry.*);
     }
 
     const page = physical.allocPage() catch return error.OutOfMemory;
     @memset(pageBytes(page), 0);
-    entry.* = @as(u64, page) | PRESENT | WRITABLE;
+    entry.* = @as(u64, page) | PRESENT | WRITABLE | if (user) USER else 0;
     return @ptrFromInt(page);
+}
+
+fn entryFlags(options: MapOptions) u64 {
+    var flags = PRESENT;
+    if (options.writable) flags |= WRITABLE;
+    if (options.user) flags |= USER;
+    return flags;
 }
 
 fn tableFromEntry(entry: u64) [*]u64 {

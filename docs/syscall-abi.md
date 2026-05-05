@@ -12,14 +12,14 @@ share conventional syscall stubs.
 - Success returns a non-negative integer.
 - Failure returns `-errno` in `RAX`.
 - Syscalls clobber `RCX` and `R11`.
-- `int 0x80` is wired for Phase 6 kernel self-tests. The ABI register layout
-  is already the Linux x86_64 `syscall` layout; user-mode `syscall/sysret`
-  entry becomes active with the ring-3 transition in Phase 8.
+- `int 0x80` is wired for Phase 6 kernel self-tests and the Phase 8 first
+  userspace process. The ABI register layout is already the Linux x86_64
+  `syscall` layout; `syscall/sysret` is a later entry-path upgrade.
 
-Userspace pointers are virtual addresses in the caller address space. Phase 6
-only has kernel-mode self-tests, so pointer validation is limited to null and
-bounded-length checks. Phase 8 must replace this with real user mapping and
-copy-in/copy-out validation.
+Userspace pointers are virtual addresses in the caller address space. Phase 8
+maps the first init into user-accessible pages, but pointer validation is still
+limited to null and bounded-length checks. Real copy-in/copy-out validation is
+required before untrusted userspace expands beyond the fixed first init.
 
 ## Errno
 

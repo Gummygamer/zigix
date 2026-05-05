@@ -1,19 +1,36 @@
 //! Static ELF64 load-plan validation.
 
 const arch = @import("arch");
+const mm = @import("mm");
 const parse = @import("parse.zig");
 
 pub const Error = parse.Error || error{
     EntryOutsideLoadSegments,
+    InvalidUserImage,
+    OutOfMemory,
+    NotAligned,
+    AlreadyMapped,
+    NotMapped,
+    Unsupported,
 };
 
 const SMOKE_ENTRY: u64 = 0x0040_0080;
 const SMOKE_LOAD_OFFSET: u64 = 0x80;
 const SMOKE_LOAD_SIZE: u64 = 4;
+const PAGE_SIZE: usize = mm.physical.PAGE_SIZE;
+const USER_IMAGE_BASE: usize = 0x4000_0000;
+const USER_IMAGE_LIMIT: usize = 0x6000_0000;
+const USER_STACK_BASE: usize = 0x7000_0000;
+const USER_STACK_SIZE: usize = PAGE_SIZE;
 
 pub const LoadedImage = struct {
     entry: u64,
     segments: []const parse.Segment,
+};
+
+pub const UserImage = struct {
+    entry: usize,
+    stack_top: usize,
 };
 
 pub fn validateStatic(image: []const u8, segment_buffer: []parse.Segment) Error!LoadedImage {
@@ -23,6 +40,26 @@ pub fn validateStatic(image: []const u8, segment_buffer: []parse.Segment) Error!
     return .{
         .entry = parsed.entry,
         .segments = parsed.segments,
+    };
+}
+
+pub fn loadStaticUser(image: []const u8, segment_buffer: []parse.Segment) Error!UserImage {
+    const loaded = try validateStatic(image, segment_buffer);
+
+    for (loaded.segments) |segment| {
+        try mapSegment(segment);
+        const file_bytes = try segment.fileBytes(image);
+        const dest: [*]u8 = @ptrFromInt(segment.virtual_address);
+        @memcpy(dest[0..file_bytes.len], file_bytes);
+    }
+
+    const stack_page = try mm.physical.allocPage();
+    @memset(pageBytes(stack_page), 0);
+    try mm.paging.mapUserPage(USER_STACK_BASE, stack_page, true);
+
+    return .{
+        .entry = toUsize(loaded.entry) orelse return error.InvalidUserImage,
+        .stack_top = USER_STACK_BASE + USER_STACK_SIZE,
     };
 }
 
@@ -47,6 +84,50 @@ fn entryInsideExecutableSegment(image: parse.Image) bool {
         if (image.entry >= segment.virtual_address and image.entry < end) return true;
     }
     return false;
+}
+
+fn mapSegment(segment: parse.Segment) Error!void {
+    const segment_start = toUsize(segment.virtual_address) orelse return error.InvalidUserImage;
+    const memory_size = toUsize(segment.memory_size) orelse return error.InvalidUserImage;
+    const raw_end = checkedAdd(segment_start, memory_size) orelse return error.InvalidUserImage;
+    if (segment_start < USER_IMAGE_BASE or raw_end > USER_IMAGE_LIMIT) {
+        return error.InvalidUserImage;
+    }
+
+    const start = alignBackward(segment_start, PAGE_SIZE);
+    const end = alignForward(raw_end, PAGE_SIZE);
+
+    var addr = start;
+    while (addr < end) : (addr += PAGE_SIZE) {
+        const page = try mm.physical.allocPage();
+        @memset(pageBytes(page), 0);
+        try mm.paging.mapUserPage(addr, page, true);
+    }
+}
+
+fn pageBytes(addr: usize) []u8 {
+    const raw: [*]u8 = @ptrFromInt(addr);
+    return raw[0..PAGE_SIZE];
+}
+
+fn checkedAdd(a: usize, b: usize) ?usize {
+    if (b > @import("std").math.maxInt(usize) - a) return null;
+    return a + b;
+}
+
+fn toUsize(value: u64) ?usize {
+    if (value > @import("std").math.maxInt(usize)) return null;
+    return @intCast(value);
+}
+
+fn alignForward(value: usize, comptime alignment: usize) usize {
+    const mask = alignment - 1;
+    return (value + mask) & ~mask;
+}
+
+fn alignBackward(value: usize, comptime alignment: usize) usize {
+    const mask = alignment - 1;
+    return value & ~mask;
 }
 
 fn buildSmokeElf(buffer: []u8) []const u8 {

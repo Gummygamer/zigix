@@ -1,19 +1,18 @@
 //! Zigix kernel entry. Called from `long_mode_start` in
 //! `kernel/arch/x86_64/boot/start.S` after long mode is established.
 //!
-//! Phase 7 contract: emit the boot markers, mount the initramfs-backed VFS,
+//! Phase 8 contract: emit the boot markers, mount the initramfs-backed VFS,
 //! run the in-kernel smoke registry,
-//! and halt through isa-debug-exit.
+//! and launch the first userspace init.
 //!   [ZIGIX:BOOT:START]   — serial UART is up, kmain has run.
 //!   [ZIGIX:BOOT:OK]      — kernel reached the end of init without panicking.
 //!   [ZIGIX:TEST:PASS:kernel_smoke] — kernel-side registry ran.
 //!
-//! Anything else (user mode, scheduler) belongs to later phases.
+//! Scheduling and process lifecycle belong to later phases.
 
 const std = @import("std");
 
 const arch = @import("arch");
-const cpu = arch.cpu;
 const serial = arch.serial;
 const log = @import("log.zig");
 const elf = @import("elf");
@@ -58,7 +57,7 @@ export fn kmain(magic: u64, info_ptr: u64) callconv(.c) noreturn {
         log.println(.err, "filesystem init failed: {s}", .{@errorName(err)});
         @panic("filesystem init failed");
     };
-    _ = fs.vfs.lookup("/init") catch |err| {
+    const init_inode = fs.vfs.lookup("/init") catch |err| {
         log.println(.err, "required initramfs file missing: {s}", .{@errorName(err)});
         @panic("missing /init");
     };
@@ -67,11 +66,11 @@ export fn kmain(magic: u64, info_ptr: u64) callconv(.c) noreturn {
     testing.runAll(kernel_tests);
     serial.writeLine("[ZIGIX:BOOT:OK]");
 
-    arch.interrupts.disable();
-    // Clean QEMU exit via isa-debug-exit (port 0xF4). QEMU exits with
-    // status `(value << 1) | 1`, so 0x10 -> exit code 33. The smoke harness
-    // treats that as the expected "kernel reached end" signal, while still
-    // letting the serial-marker parser decide pass/fail.
-    cpu.outb(0xF4, 0x10);
-    cpu.halt();
+    var user_segments: [8]elf.parse.Segment = undefined;
+    const init_image = elf.loader.loadStaticUser(init_inode.data, &user_segments) catch |err| {
+        log.println(.err, "loading /init failed: {s}", .{@errorName(err)});
+        @panic("init load failed");
+    };
+
+    arch.user.enter(init_image.entry, init_image.stack_top);
 }

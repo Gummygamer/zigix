@@ -9,17 +9,21 @@ extern var stack_top: u8;
 
 const KERNEL_CODE: u16 = 0x08;
 const KERNEL_DATA: u16 = 0x10;
-const TSS_SELECTOR: u16 = 0x18;
+pub const USER_CODE: u16 = 0x18 | 3;
+pub const USER_DATA: u16 = 0x20 | 3;
+const TSS_SELECTOR: u16 = 0x28;
 
 const TSS_SIZE = 104;
 
 var tss: [TSS_SIZE]u8 align(16) = [_]u8{0} ** TSS_SIZE;
 
-// null, kernel code, kernel data, TSS low, TSS high.
-var table: [5]u64 align(8) = .{
+// null, kernel code, kernel data, user code, user data, TSS low, TSS high.
+var table: [7]u64 align(8) = .{
     0,
     0x00AF9A000000FFFF,
     0x00AF92000000FFFF,
+    0x00AFFA000000FFFF,
+    0x00AFF2000000FFFF,
     0,
     0,
 };
@@ -40,14 +44,14 @@ fn installTssDescriptor() void {
     const base = @intFromPtr(&tss);
     const limit: u32 = TSS_SIZE - 1;
 
-    table[3] =
+    table[5] =
         (@as(u64, limit & 0xffff)) |
         ((@as(u64, base & 0xffff)) << 16) |
         ((@as(u64, (base >> 16) & 0xff)) << 32) |
         (@as(u64, 0x89) << 40) |
         ((@as(u64, (limit >> 16) & 0x0f)) << 48) |
         ((@as(u64, (base >> 24) & 0xff)) << 56);
-    table[4] = @as(u64, (base >> 32) & 0xffff_ffff);
+    table[6] = @as(u64, (base >> 32) & 0xffff_ffff);
 }
 
 fn writeLe16(offset: usize, value: u16) void {
@@ -77,5 +81,7 @@ fn writeDescriptorPointer(dest: *[10]u8, limit: u16, base: u64) void {
 comptime {
     std.debug.assert(KERNEL_CODE == 0x08);
     std.debug.assert(KERNEL_DATA == 0x10);
+    std.debug.assert(USER_CODE == 0x1b);
+    std.debug.assert(USER_DATA == 0x23);
     std.debug.assert(TSS_SIZE == 104);
 }

@@ -21,8 +21,9 @@ rejected.
 | 5     | VFS and initramfs                    | done         | `[ZIGIX:VFS:OK]` |
 | 6     | Syscall ABI v0                       | done         | `[ZIGIX:SYSCALL:OK]` |
 | 7     | ELF64 static loader                  | done         | `[ZIGIX:ELF:OK]` |
-| 8     | User mode + init                     | next         | `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
-| 9–15  | Userspace expansion                  | pending      | per-phase markers TBD |
+| 8     | User mode + init                     | done         | `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
+| 9     | File descriptors and basic Unix I/O  | next         | markers TBD |
+| 10–15 | Userspace expansion                  | pending      | per-phase markers TBD |
 
 ## Phase 0 — Toolchain and smoke-test skeleton ✅
 
@@ -150,8 +151,8 @@ being triple-faults."
   RDX/R10/R8/R9 = args, returns in RAX, errors as `-errno`). Document in
   `docs/syscall-abi.md`.
 - [x] Syscall entry via `int 0x80` for the Phase 6 self-test. The ABI uses
-  the Linux x86_64 `syscall` register layout; `syscall`/`sysret`, `swapgs`,
-  and user stack switching become active with the Phase 8 ring-3 transition.
+  the Linux x86_64 `syscall` register layout; `syscall`/`sysret` and
+  `swapgs` remain a later entry-path upgrade.
 - [x] Dispatcher (`kernel/syscall/dispatch.zig`) and number registry
   (`kernel/syscall/numbers.zig`).
 - [x] Handlers, in this order: `write` (so userspace can speak markers),
@@ -176,13 +177,17 @@ active in Phase 8 when user mode exists.
 
 ## Phase 8 — User mode and init
 
-- Ring 3 transition via `iretq`/`sysret`. Kernel and user mappings
-  coexist; consider switching to higher-half kernel here if not earlier.
-- A trivial first-init: writes `[ZIGIX:INIT:START]`, then
+- [x] Ring 3 transition via `iretq`. Kernel and user mappings coexist;
+  consider switching to a higher-half kernel in a later memory-management pass.
+- [x] A trivial first-init: writes `[ZIGIX:INIT:START]`, then
   `[ZIGIX:INIT:OK]`, then `exit(0)`. Source lives in `userspace/init/`.
-- Build it as a separate Zig executable targeting freestanding x86_64
+- [x] Build it as a separate Zig executable targeting freestanding x86_64
   with the syscall stub from Phase 6.
-- Markers (in order): `[ZIGIX:INIT:START]`, `[ZIGIX:INIT:OK]`.
+- [x] Markers (in order): `[ZIGIX:INIT:START]`, `[ZIGIX:INIT:OK]`.
+
+Notes: Phase 8 still uses `int 0x80`; `syscall/sysret`, proper copy-in /
+copy-out, process tables, and per-process file descriptors move to later
+userspace phases.
 
 ## Phase 9 — File descriptors and basic Unix I/O
 
@@ -237,15 +242,13 @@ active in Phase 8 when user mode exists.
 
 The next thing to do, concretely:
 
-1. Source `.env`, then run `ci/local.sh` to confirm the Phase 7 ELF smoke
+1. Source `.env`, then run `ci/local.sh` to confirm the Phase 8 init smoke
    still passes.
-2. Read the Phase 8 notes above.
-3. Add the minimal user-mode transition path with a known-good kernel/user
-   stack handoff.
-4. Build `userspace/init/` as a freestanding static executable and package it
-   into the initramfs.
-5. Emit `[ZIGIX:INIT:START]` and `[ZIGIX:INIT:OK]` from init through the Phase 6
-   syscall ABI.
+2. Read the Phase 9 notes above.
+3. Add the first process-owned file descriptor table instead of the current
+   global syscall table.
+4. Add `dup` and close-on-exec metadata, then extend the syscall tests before
+   adding pipes.
 
 Operational reminders for a fresh session:
 

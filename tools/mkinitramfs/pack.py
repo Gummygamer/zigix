@@ -3,6 +3,7 @@
 
 Usage:
   pack.py OUT PATH=SOURCE [PATH=SOURCE ...]
+  pack.py OUT --entry PATH SOURCE [--entry PATH SOURCE ...]
 """
 
 from __future__ import annotations
@@ -24,11 +25,24 @@ def main() -> int:
     out = Path(sys.argv[1])
     entries: list[tuple[str, bytes]] = []
 
-    for spec in sys.argv[2:]:
-        if "=" not in spec:
-            print(f"entry must be PATH=SOURCE: {spec}", file=sys.stderr)
-            return 2
-        image_path, source = spec.split("=", 1)
+    args = sys.argv[2:]
+    index = 0
+    while index < len(args):
+        if args[index] == "--entry":
+            if index + 2 >= len(args):
+                print("--entry requires PATH and SOURCE", file=sys.stderr)
+                return 2
+            image_path = args[index + 1]
+            source = args[index + 2]
+            index += 3
+        else:
+            spec = args[index]
+            if "=" not in spec:
+                print(f"entry must be PATH=SOURCE or --entry PATH SOURCE: {spec}", file=sys.stderr)
+                return 2
+            image_path, source = spec.split("=", 1)
+            index += 1
+
         if not image_path.startswith("/"):
             image_path = "/" + image_path
         data = Path(source).read_bytes()
@@ -56,4 +70,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

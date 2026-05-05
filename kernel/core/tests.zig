@@ -125,10 +125,10 @@ fn syscallVfs() testing.TestError!void {
     }
     if (stat.size <= 0) return error.SyscallFstatEmptyFile;
 
-    var buf: [5]u8 = undefined;
+    var buf: [4]u8 = undefined;
     const read = syscall.dispatch.invoke(syscall.numbers.read, @intCast(fd), @intFromPtr(&buf), buf.len, 0, 0, 0);
     if (read != buf.len) return error.SyscallReadFailed;
-    if (!std.mem.eql(u8, &buf, "Zigix")) return error.SyscallReadWrongData;
+    if (!std.mem.eql(u8, &buf, "\x7fELF")) return error.SyscallReadWrongData;
 
     if (syscall.dispatch.invoke(syscall.numbers.lseek, @intCast(fd), 0, 0, 0, 0, 0) != 0) {
         return error.SyscallLseekFailed;

@@ -126,11 +126,12 @@ cache path explicitly.
 
 ## Does the fork compile freestanding kernel code?
 
-**Yes — confirmed through Phase 7.** `tools/toolchain/zig-bun build qemu-smoke`
+**Yes — confirmed through Phase 8.** `tools/toolchain/zig-bun build qemu-smoke`
 produces an ELF that boots in QEMU, parses the Multiboot1 memory map, runs the
 kernel smoke registry, catches a deliberate `#UD`, advances the PIT tick, and
-mounts the initramfs-backed VFS root, exercises syscall ABI v0, and validates a
-static ELF64 load plan.
+mounts the initramfs-backed VFS root, exercises syscall ABI v0, validates a
+static ELF64 load plan, then runs a freestanding ring-3 init through
+`int 0x80`.
 
 Caveats discovered:
 
