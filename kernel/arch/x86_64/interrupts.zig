@@ -9,11 +9,14 @@ extern fn zigix_isr_df() callconv(.c) void;
 extern fn zigix_isr_gp() callconv(.c) void;
 extern fn zigix_isr_pf() callconv(.c) void;
 extern fn zigix_irq0_timer() callconv(.c) void;
+extern fn zigix_int80_syscall() callconv(.c) void;
 extern fn zigix_lidt(ptr: *align(1) const anyopaque) callconv(.c) void;
 
 const KERNEL_CODE_SELECTOR: u16 = 0x08;
 const INTERRUPT_GATE: u8 = 0x8E;
+const USER_INTERRUPT_GATE: u8 = 0xEE;
 const TIMER_VECTOR: u8 = 32;
+const SYSCALL_VECTOR: u8 = 0x80;
 const PIT_FREQUENCY_HZ: u32 = 100;
 const PIT_BASE_HZ: u32 = 1_193_182;
 
@@ -37,6 +40,7 @@ pub fn init() void {
     setGate(13, zigix_isr_gp);
     setGate(14, zigix_isr_pf);
     setGate(TIMER_VECTOR, zigix_irq0_timer);
+    setUserGate(SYSCALL_VECTOR, zigix_int80_syscall);
 
     writeDescriptorPointer(&idt_pointer, @sizeOf(@TypeOf(idt)) - 1, @intFromPtr(&idt));
     zigix_lidt(&idt_pointer);
@@ -68,11 +72,19 @@ pub fn triggerUdSelfTest() bool {
 }
 
 fn setGate(vector: u8, comptime handler: fn () callconv(.c) void) void {
+    setGateWithAttributes(vector, handler, INTERRUPT_GATE);
+}
+
+fn setUserGate(vector: u8, comptime handler: fn () callconv(.c) void) void {
+    setGateWithAttributes(vector, handler, USER_INTERRUPT_GATE);
+}
+
+fn setGateWithAttributes(vector: u8, comptime handler: fn () callconv(.c) void, attributes: u8) void {
     const offset = @intFromPtr(&handler);
     idt[vector] =
         @as(u128, offset & 0xffff) |
         (@as(u128, KERNEL_CODE_SELECTOR) << 16) |
-        (@as(u128, INTERRUPT_GATE) << 40) |
+        (@as(u128, attributes) << 40) |
         (@as(u128, (offset >> 16) & 0xffff) << 48) |
         (@as(u128, (offset >> 32) & 0xffff_ffff) << 64);
 }

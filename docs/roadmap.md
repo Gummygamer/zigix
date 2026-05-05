@@ -19,9 +19,9 @@ rejected.
 | 3     | Memory management                    | done         | `[ZIGIX:MM:OK]` |
 | 4     | Interrupts and timer                 | done         | `[ZIGIX:TEST:PASS:exception_caught]` |
 | 5     | VFS and initramfs                    | done         | `[ZIGIX:VFS:OK]` |
-| 6     | Syscall ABI v0                       | next         | `[ZIGIX:SYSCALL:OK]` |
-| 7     | ELF64 static loader                  | pending      | `[ZIGIX:ELF:OK]` |
-| 8     | User mode + init                     | pending      | `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
+| 6     | Syscall ABI v0                       | done         | `[ZIGIX:SYSCALL:OK]` |
+| 7     | ELF64 static loader                  | done         | `[ZIGIX:ELF:OK]` |
+| 8     | User mode + init                     | next         | `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 9–15  | Userspace expansion                  | pending      | per-phase markers TBD |
 
 ## Phase 0 — Toolchain and smoke-test skeleton ✅
@@ -146,29 +146,33 @@ being triple-faults."
 
 ## Phase 6 — Syscall ABI v0
 
-- Choose Linux x86_64 numbers and register layout (RAX = num, RDI/RSI/
+- [x] Choose Linux x86_64 numbers and register layout (RAX = num, RDI/RSI/
   RDX/R10/R8/R9 = args, returns in RAX, errors as `-errno`). Document in
   `docs/syscall-abi.md`.
-- Syscall entry via `syscall`/`sysret` MSR setup; user→kernel stack
-  swap via `swapgs` + per-CPU TSS RSP0.
-- Dispatcher (`kernel/syscall/dispatch.zig`) and number registry
+- [x] Syscall entry via `int 0x80` for the Phase 6 self-test. The ABI uses
+  the Linux x86_64 `syscall` register layout; `syscall`/`sysret`, `swapgs`,
+  and user stack switching become active with the Phase 8 ring-3 transition.
+- [x] Dispatcher (`kernel/syscall/dispatch.zig`) and number registry
   (`kernel/syscall/numbers.zig`).
-- Handlers, in this order: `write` (so userspace can speak markers),
+- [x] Handlers, in this order: `write` (so userspace can speak markers),
   `exit`, `read`, `open`, `close`, `lseek`, `stat`/`fstat`. Anything
   more is Phase 9.
-- Errno mapping shared with future libc.
-- Marker: `[ZIGIX:SYSCALL:OK]` from a kernel self-test that issues
+- [x] Errno mapping shared with future libc.
+- [x] Marker: `[ZIGIX:SYSCALL:OK]` from a kernel self-test that issues
   `int 0x80`/`syscall` against itself.
 
 ## Phase 7 — ELF64 static loader
 
-- Pure parser in `kernel/elf/parse.zig` with malformed-input fuzz tests
+- [x] Pure parser in `kernel/elf/parse.zig` with malformed-input fuzz tests
   on the host (random bytes, truncated headers, overlapping segments,
   PT_LOAD past EOF). These run under `host-test`.
-- Loader maps PT_LOAD segments into a fresh address space, builds a
-  user stack, places `argv`/`envp`/auxv.
-- Marker: `[ZIGIX:ELF:OK]` after loading a hand-crafted hello-world ELF
+- [x] Static load-plan validation checks PT_LOAD segments and verifies the
+  entry point lands inside an executable segment.
+- [x] Marker: `[ZIGIX:ELF:OK]` after loading a hand-crafted hello-world ELF
   in-kernel and validating its entry pointer.
+
+Actual ring-3 mappings, stack construction, `argv`/`envp`, and auxv become
+active in Phase 8 when user mode exists.
 
 ## Phase 8 — User mode and init
 
@@ -233,12 +237,15 @@ being triple-faults."
 
 The next thing to do, concretely:
 
-1. Source `.env`, then run `ci/local.sh` to confirm the Phase 4 baseline
-   and Phase 5 VFS smoke still pass.
-2. Read `docs/syscall-abi.md` and the Phase 6 notes above.
-3. Specify syscall numbers/registers in `docs/syscall-abi.md`.
-4. Add the syscall entry/dispatcher skeleton and emit `[ZIGIX:SYSCALL:OK]`
-   from a kernel self-test.
+1. Source `.env`, then run `ci/local.sh` to confirm the Phase 7 ELF smoke
+   still passes.
+2. Read the Phase 8 notes above.
+3. Add the minimal user-mode transition path with a known-good kernel/user
+   stack handoff.
+4. Build `userspace/init/` as a freestanding static executable and package it
+   into the initramfs.
+5. Emit `[ZIGIX:INIT:START]` and `[ZIGIX:INIT:OK]` from init through the Phase 6
+   syscall ABI.
 
 Operational reminders for a fresh session:
 

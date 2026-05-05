@@ -1,9 +1,13 @@
 //! Canonical early kernel tests.
 
+const std = @import("std");
+
 const arch = @import("arch");
 const serial = arch.serial;
 
+const elf = @import("elf");
 const mm = @import("mm");
+const syscall = @import("syscall");
 const testing = @import("testing.zig");
 
 pub const TEST_kernel_smoke = testing.Test{
@@ -24,6 +28,21 @@ pub const TEST_exception_caught = testing.Test{
 pub const TEST_timer_tick = testing.Test{
     .name = "timer_tick",
     .run = timerTick,
+};
+
+pub const TEST_syscall_write = testing.Test{
+    .name = "syscall_write",
+    .run = syscallWrite,
+};
+
+pub const TEST_syscall_vfs = testing.Test{
+    .name = "syscall_vfs",
+    .run = syscallVfs,
+};
+
+pub const TEST_elf_static_loader = testing.Test{
+    .name = "elf_static_loader",
+    .run = elfStaticLoader,
 };
 
 fn kernelSmoke() testing.TestError!void {
@@ -89,4 +108,42 @@ fn timerTick() testing.TestError!void {
         asm volatile ("pause");
     }
     if (arch.interrupts.tickCount() == before) return error.TimerDidNotTick;
+}
+
+fn syscallWrite() testing.TestError!void {
+    if (!syscall.selfTestWriteMarker()) return error.SyscallWriteFailed;
+}
+
+fn syscallVfs() testing.TestError!void {
+    const path = "/init\x00";
+    const fd = syscall.dispatch.invoke(syscall.numbers.open, @intFromPtr(path.ptr), 0, 0, 0, 0, 0);
+    if (fd < 3) return error.SyscallOpenFailed;
+
+    var stat: syscall.Stat = .{};
+    if (syscall.dispatch.invoke(syscall.numbers.fstat, @intCast(fd), @intFromPtr(&stat), 0, 0, 0, 0) != 0) {
+        return error.SyscallFstatFailed;
+    }
+    if (stat.size <= 0) return error.SyscallFstatEmptyFile;
+
+    var buf: [5]u8 = undefined;
+    const read = syscall.dispatch.invoke(syscall.numbers.read, @intCast(fd), @intFromPtr(&buf), buf.len, 0, 0, 0);
+    if (read != buf.len) return error.SyscallReadFailed;
+    if (!std.mem.eql(u8, &buf, "Zigix")) return error.SyscallReadWrongData;
+
+    if (syscall.dispatch.invoke(syscall.numbers.lseek, @intCast(fd), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallLseekFailed;
+    }
+
+    if (syscall.dispatch.invoke(syscall.numbers.stat, @intFromPtr(path.ptr), @intFromPtr(&stat), 0, 0, 0, 0) != 0) {
+        return error.SyscallStatFailed;
+    }
+    if (stat.size <= 0) return error.SyscallStatEmptyFile;
+
+    if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(fd), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallCloseFailed;
+    }
+}
+
+fn elfStaticLoader() testing.TestError!void {
+    if (!elf.selfTestStaticLoaderMarker()) return error.ElfStaticLoaderFailed;
 }

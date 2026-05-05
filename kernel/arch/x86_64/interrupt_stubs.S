@@ -97,6 +97,16 @@ zigix_irq0_timer:
     iretq
 .size zigix_irq0_timer, . - zigix_irq0_timer
 
+.global zigix_int80_syscall
+.type zigix_int80_syscall, @function
+zigix_int80_syscall:
+    SAVE_GPRS
+    movq    %rsp, %rdi
+    ALIGN_AND_CALL x86_64_handle_int80
+    RESTORE_GPRS
+    iretq
+.size zigix_int80_syscall, . - zigix_int80_syscall
+
 .macro EXCEPTION_NO_ERROR name, vector
 .global \name
 .type \name, @function

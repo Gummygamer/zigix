@@ -1,10 +1,10 @@
 //! Zigix build orchestration.
 //!
-//! Phase 5 steps:
+//! Phase 7 steps:
 //!   * `check-toolchain`     -- runs the host-side toolchain check script.
 //!   * `kernel`              -- builds zig-out/bin/zigix-kernel (multiboot1 ELF).
 //!   * `validate-kernel-elf` -- sanity-checks the ELF (32-bit ELF check, multiboot magic).
-//!   * `qemu-smoke`          -- boots the kernel headlessly and parses Phase 5 serial markers.
+//!   * `qemu-smoke`          -- boots the kernel headlessly and parses Phase 7 serial markers.
 //!   * `host-test`           -- runs host-side unit tests.
 //!
 //! IMPORTANT: invoke this build via `tools/toolchain/zig-bun build <step>`,
@@ -109,6 +109,41 @@ pub fn build(b: *std.Build) void {
         },
     });
 
+    const syscall_module = b.createModule(.{
+        .root_source_file = b.path("kernel/syscall/syscall.zig"),
+        .target = kernel_target,
+        .optimize = optimize,
+        .code_model = .kernel,
+        .red_zone = false,
+        .pic = false,
+        .stack_protector = false,
+        .stack_check = false,
+        .single_threaded = true,
+        .strip = false,
+        .omit_frame_pointer = false,
+        .imports = &.{
+            .{ .name = "arch", .module = arch_module },
+            .{ .name = "fs", .module = fs_module },
+        },
+    });
+
+    const elf_module = b.createModule(.{
+        .root_source_file = b.path("kernel/elf/elf.zig"),
+        .target = kernel_target,
+        .optimize = optimize,
+        .code_model = .kernel,
+        .red_zone = false,
+        .pic = false,
+        .stack_protector = false,
+        .stack_check = false,
+        .single_threaded = true,
+        .strip = false,
+        .omit_frame_pointer = false,
+        .imports = &.{
+            .{ .name = "arch", .module = arch_module },
+        },
+    });
+
     const kernel_module = b.createModule(.{
         .root_source_file = b.path("kernel/core/main.zig"),
         .target = kernel_target,
@@ -124,8 +159,10 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "arch", .module = arch_module },
             .{ .name = "fs", .module = fs_module },
+            .{ .name = "elf", .module = elf_module },
             .{ .name = "mm", .module = mm_module },
             .{ .name = "multiboot", .module = multiboot_module },
+            .{ .name = "syscall", .module = syscall_module },
         },
     });
 
@@ -223,14 +260,14 @@ pub fn build(b: *std.Build) void {
         "tools/qemu/smoke_test.py",
         "zig-out/serial.log",
         "--phase",
-        "phase5",
+        "phase7",
     });
     smoke.setName("qemu-smoke-parse");
     smoke.step.dependOn(&qemu_run.step);
 
     const qemu_step = b.step(
         "qemu-smoke",
-        "Boot the kernel in QEMU and verify Phase 5 markers on COM1",
+        "Boot the kernel in QEMU and verify Phase 7 markers on COM1",
     );
     qemu_step.dependOn(&smoke.step);
 
@@ -255,9 +292,30 @@ pub fn build(b: *std.Build) void {
     });
     const run_host_path_tests = b.addRunArtifact(host_path_tests);
 
+    const host_elf_module = b.createModule(.{
+        .root_source_file = b.path("tests/host/elf_parse.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{
+            .{
+                .name = "elf_parse",
+                .module = b.createModule(.{
+                    .root_source_file = b.path("kernel/elf/parse.zig"),
+                    .target = b.graph.host,
+                    .optimize = optimize,
+                }),
+            },
+        },
+    });
+    const host_elf_tests = b.addTest(.{
+        .root_module = host_elf_module,
+    });
+    const run_host_elf_tests = b.addRunArtifact(host_elf_tests);
+
     const host_step = b.step(
         "host-test",
         "Run host-side unit tests",
     );
     host_step.dependOn(&run_host_path_tests.step);
+    host_step.dependOn(&run_host_elf_tests.step);
 }

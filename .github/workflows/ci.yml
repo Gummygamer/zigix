@@ -28,7 +28,7 @@ jobs:
         run: ci/local.sh
 
   qemu-smoke:
-    # Full Phase 1 acceptance: Bun Zig + QEMU + kernel build + serial-marker
+    # Full current-phase acceptance: Bun Zig + QEMU + kernel build + serial-marker
     # verification. Mirrors what `ci/local.sh` runs locally when ZIGIX_BUN_ZIG
     # is exported.
     runs-on: ubuntu-latest
