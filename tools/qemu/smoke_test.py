@@ -41,6 +41,7 @@ PHASES: dict[str, list[str]] = {
         "[ZIGIX:TEST:PASS:kernel_smoke]",
     ],
     "phase3": ["[ZIGIX:BOOT:OK]", "[ZIGIX:MM:OK]"],
+    "phase4": ["[ZIGIX:BOOT:OK]", "[ZIGIX:TEST:PASS:exception_caught]"],
     "phase5": ["[ZIGIX:BOOT:OK]", "[ZIGIX:VFS:OK]"],
     "phase6": ["[ZIGIX:BOOT:OK]", "[ZIGIX:SYSCALL:OK]"],
     "phase7": ["[ZIGIX:BOOT:OK]", "[ZIGIX:ELF:OK]"],

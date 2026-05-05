@@ -1,10 +1,10 @@
 //! Zigix build orchestration.
 //!
-//! Phase 3 steps:
+//! Phase 4 steps:
 //!   * `check-toolchain`     -- runs the host-side toolchain check script.
 //!   * `kernel`              -- builds zig-out/bin/zigix-kernel (multiboot1 ELF).
 //!   * `validate-kernel-elf` -- sanity-checks the ELF (32-bit ELF check, multiboot magic).
-//!   * `qemu-smoke`          -- boots the kernel headlessly and parses Phase 3 serial markers.
+//!   * `qemu-smoke`          -- boots the kernel headlessly and parses Phase 4 serial markers.
 //!   * `host-test`           -- placeholder (no host tests yet).
 //!
 //! IMPORTANT: invoke this build via `tools/toolchain/zig-bun build <step>`,
@@ -124,6 +124,7 @@ pub fn build(b: *std.Build) void {
     kernel_exe.setLinkerScript(b.path("kernel/arch/x86_64/linker.ld"));
     kernel_exe.entry = .{ .symbol_name = "_start" };
     kernel_exe.addAssemblyFile(b.path("kernel/arch/x86_64/boot/start.S"));
+    kernel_exe.addAssemblyFile(b.path("kernel/arch/x86_64/interrupt_stubs.S"));
     // Multiboot1 requires the header to live in the first 8 KiB of the
     // file. The linker script places `.multiboot` first, but we also tell
     // the linker not to page-pad the file so the offset stays small.
@@ -190,14 +191,14 @@ pub fn build(b: *std.Build) void {
         "tools/qemu/smoke_test.py",
         "zig-out/serial.log",
         "--phase",
-        "phase3",
+        "phase4",
     });
     smoke.setName("qemu-smoke-parse");
     smoke.step.dependOn(&qemu_run.step);
 
     const qemu_step = b.step(
         "qemu-smoke",
-        "Boot the kernel in QEMU and verify Phase 3 markers on COM1",
+        "Boot the kernel in QEMU and verify Phase 4 markers on COM1",
     );
     qemu_step.dependOn(&smoke.step);
 

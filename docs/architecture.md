@@ -66,8 +66,11 @@ for the rationale.
    `[ZIGIX:TOOLCHAIN:bun-zig=<v>]`.
 6. `kmain` validates the Multiboot1 handoff, parses the memory map,
    initializes the physical page allocator and early heap, runs the kernel
-   smoke registry, and emits `[ZIGIX:MM:OK]` before `[ZIGIX:BOOT:OK]`.
-7. `kmain` writes `0x10` to the `isa-debug-exit` device on port `0xF4`,
+   smoke registry, and emits `[ZIGIX:MM:OK]`.
+7. `kmain` installs the kernel-owned GDT/TSS, loads the IDT, remaps the
+   legacy PIC, starts the PIT timer, and proves the exception path with
+   `[ZIGIX:TEST:PASS:exception_caught]` before `[ZIGIX:BOOT:OK]`.
+8. `kmain` writes `0x10` to the `isa-debug-exit` device on port `0xF4`,
    causing QEMU to exit with status `33` so CI finishes in milliseconds
    instead of waiting for the harness timeout.
 
@@ -85,7 +88,6 @@ mode and accepts them.
 
 ## Boot flow (later phases — not yet implemented)
 
-8. Kernel installs GDT/IDT and basic exception handlers.
 9. Kernel mounts the initramfs and prints `[ZIGIX:VFS:OK]`.
 10. Kernel sets up the syscall table and prints `[ZIGIX:SYSCALL:OK]`.
 11. Kernel loads `/init` from initramfs and drops to user mode.

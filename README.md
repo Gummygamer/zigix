@@ -20,11 +20,10 @@ OS with:
 
 ## Status
 
-Phase 3 is complete: Zigix boots under QEMU, parses the Multiboot1 memory map,
-initializes a physical page allocator and early heap, exercises page-table
-walking/mapping in the kernel test registry, emits `[ZIGIX:MM:OK]`, and exits
-through `isa-debug-exit` for fast automation. Phase 4 starts interrupts and
-timer work.
+Phase 4 is complete: Zigix boots under QEMU, initializes memory management,
+installs a kernel-owned GDT/TSS and IDT, catches a deliberate `#UD`, verifies
+that the PIT tick is advancing, and exits through `isa-debug-exit` for fast
+automation. Phase 5 starts VFS and initramfs work.
 
 See [`docs/roadmap.md`](docs/roadmap.md) for the phased plan and
 [`docs/bun-zig-toolchain.md`](docs/bun-zig-toolchain.md) for the toolchain
@@ -47,13 +46,13 @@ directly.
 
 ## Building and testing
 
-The build entry points are intentionally thin while Phase 0 is in progress:
+The build entry points are intentionally thin:
 
 | Command                                | What it does                                                     |
 | -------------------------------------- | ---------------------------------------------------------------- |
 | `tools/toolchain/check-bun-zig.sh`     | Verify the Bun Zig toolchain is configured. Logs identity.       |
 | `tools/toolchain/zig-bun build check-toolchain` | Same check, via `build.zig`. Requires Bun Zig to run.   |
-| `tools/toolchain/zig-bun build qemu-smoke`      | Boot the kernel in QEMU and verify Phase 3 serial markers.      |
+| `tools/toolchain/zig-bun build qemu-smoke`      | Boot the kernel in QEMU and verify Phase 4 serial markers.      |
 | `ci/local.sh`                          | Run all host-side checks.                                        |
 
 QEMU smoke runs are headless and machine-readable. See

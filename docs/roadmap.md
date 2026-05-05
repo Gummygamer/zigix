@@ -17,8 +17,8 @@ rejected.
 | 1     | First boot                           | done         | QEMU smoke: `[ZIGIX:BOOT:START]` + `[ZIGIX:BOOT:OK]`, exit 33 |
 | 2     | Kernel logging, panic, test runner   | done         | `[ZIGIX:TEST:PASS:kernel_smoke]` |
 | 3     | Memory management                    | done         | `[ZIGIX:MM:OK]` |
-| 4     | Interrupts and timer                 | next         | `[ZIGIX:TEST:PASS:exception_caught]` |
-| 5     | VFS and initramfs                    | pending      | `[ZIGIX:VFS:OK]` |
+| 4     | Interrupts and timer                 | done         | `[ZIGIX:TEST:PASS:exception_caught]` |
+| 5     | VFS and initramfs                    | next         | `[ZIGIX:VFS:OK]` |
 | 6     | Syscall ABI v0                       | pending      | `[ZIGIX:SYSCALL:OK]` |
 | 7     | ELF64 static loader                  | pending      | `[ZIGIX:ELF:OK]` |
 | 8     | User mode + init                     | pending      | `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
@@ -117,15 +117,15 @@ pages and small heap allocations.
 **Goal:** the kernel can take an exception without rebooting, and a
 periodic tick is incrementing.
 
-- GDT (replace the boot one with a kernel-owned GDT in writable memory),
+- [x] GDT (replace the boot one with a kernel-owned GDT in writable memory),
   TSS for ring transitions later.
-- IDT with handlers for the architectural exceptions (DE, UD, GP, PF,
+- [x] IDT with handlers for the architectural exceptions (DE, UD, GP, PF,
   DF). Page-fault handler at minimum prints CR2 + error code and panics
   cleanly; later it will populate on-demand.
-- PIC remap (or APIC/IO-APIC if we want to skip the legacy PIC) and a
+- [x] PIC remap (or APIC/IO-APIC if we want to skip the legacy PIC) and a
   timer (PIT or HPET) firing at a known rate. Tick counter visible to
   the rest of the kernel.
-- Self-test: deliberately trigger a `#UD` from a test entry, catch it,
+- [x] Self-test: deliberately trigger a `#UD` from a test entry, catch it,
   emit `[ZIGIX:TEST:PASS:exception_caught]`, then return.
 
 No new top-level marker — the goal is "Phase 5+ can rely on traps not
@@ -233,12 +233,12 @@ being triple-faults."
 
 The next thing to do, concretely:
 
-1. Source `.env`, then run `ci/local.sh` to confirm the Phase 3 baseline
+1. Source `.env`, then run `ci/local.sh` to confirm the Phase 4 baseline
    still passes.
-2. Read `docs/architecture.md` § "Boot flow" and the Phase 4 notes above.
-3. Add a kernel-owned GDT/IDT and a minimal exception path.
-4. Start with a catchable `#UD` self-test, then add timer setup once traps
-   are stable.
+2. Read `docs/architecture.md` § "Boot flow" and the Phase 5 notes above.
+3. Add the VFS interfaces and an in-memory filesystem.
+4. Add an initramfs format and mount path, then emit `[ZIGIX:VFS:OK]`
+   after `lookup("/init")` succeeds.
 
 Operational reminders for a fresh session:
 

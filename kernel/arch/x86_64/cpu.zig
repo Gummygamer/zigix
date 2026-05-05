@@ -21,6 +21,12 @@ pub inline fn readCr3() usize {
     );
 }
 
+pub inline fn readCr2() usize {
+    return asm volatile ("mov %%cr2, %[result]"
+        : [result] "=r" (-> usize),
+    );
+}
+
 pub inline fn halt() noreturn {
     while (true) asm volatile ("hlt");
 }

@@ -16,6 +16,16 @@ pub const TEST_memory_smoke = testing.Test{
     .run = memorySmoke,
 };
 
+pub const TEST_exception_caught = testing.Test{
+    .name = "exception_caught",
+    .run = exceptionCaught,
+};
+
+pub const TEST_timer_tick = testing.Test{
+    .name = "timer_tick",
+    .run = timerTick,
+};
+
 fn kernelSmoke() testing.TestError!void {
     if (!serial.scratchRoundTrip(0x5A)) return error.SerialScratchMismatch;
 
@@ -66,4 +76,17 @@ fn memorySmoke() testing.TestError!void {
     mm.physical.freePage(mapped_page);
 
     serial.writeLine("[ZIGIX:MM:OK]");
+}
+
+fn exceptionCaught() testing.TestError!void {
+    if (!arch.interrupts.triggerUdSelfTest()) return error.ExceptionNotCaught;
+}
+
+fn timerTick() testing.TestError!void {
+    const before = arch.interrupts.tickCount();
+    var spins: usize = 0;
+    while (arch.interrupts.tickCount() == before and spins < 10_000_000) : (spins += 1) {
+        asm volatile ("pause");
+    }
+    if (arch.interrupts.tickCount() == before) return error.TimerDidNotTick;
 }

@@ -126,9 +126,9 @@ cache path explicitly.
 
 ## Does the fork compile freestanding kernel code?
 
-**Yes — confirmed through Phase 3.** `tools/toolchain/zig-bun build qemu-smoke`
+**Yes — confirmed through Phase 4.** `tools/toolchain/zig-bun build qemu-smoke`
 produces an ELF that boots in QEMU, parses the Multiboot1 memory map, runs the
-kernel smoke registry, and emits `[ZIGIX:MM:OK]`.
+kernel smoke registry, catches a deliberate `#UD`, and advances the PIT tick.
 
 Caveats discovered:
 

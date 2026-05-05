@@ -1,8 +1,8 @@
 //! 16550-compatible UART driver, COM1 only. The smallest thing that lets
 //! the kernel emit machine-readable serial markers.
 //!
-//! Anything more (interrupt-driven RX, line discipline, second UART,
-//! IRQ routing) belongs to a later phase.
+//! Anything more (interrupt-driven RX, line discipline, second UART)
+//! belongs to a later phase.
 
 const cpu = @import("cpu.zig");
 
@@ -49,7 +49,7 @@ inline fn transmitReady() bool {
 pub fn writeByte(b: u8) void {
     while (!transmitReady()) {}
     cpu.outb(COM1 + REG_DATA, b);
-    bytes_written += 1;
+    bytes_written +%= 1;
 }
 
 pub fn write(bytes: []const u8) void {
@@ -59,6 +59,39 @@ pub fn write(bytes: []const u8) void {
 pub fn writeLine(bytes: []const u8) void {
     write(bytes);
     writeByte('\n');
+}
+
+pub fn writeDecimal(value: u64) void {
+    var buf: [20]u8 = undefined;
+    var i: usize = buf.len;
+    var n = value;
+
+    if (n == 0) {
+        writeByte('0');
+        return;
+    }
+
+    while (n != 0) {
+        i -= 1;
+        buf[i] = '0' + @as(u8, @intCast(n % 10));
+        n /= 10;
+    }
+    write(buf[i..]);
+}
+
+pub fn writeHex(value: u64) void {
+    write("0x");
+    var shift: u6 = 60;
+    var seen_non_zero = false;
+    while (true) {
+        const nibble: u8 = @intCast((value >> shift) & 0xF);
+        if (nibble != 0 or seen_non_zero or shift == 0) {
+            seen_non_zero = true;
+            writeByte(if (nibble < 10) '0' + nibble else 'a' + (nibble - 10));
+        }
+        if (shift == 0) break;
+        shift -= 4;
+    }
 }
 
 pub fn writtenByteCount() usize {

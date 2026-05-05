@@ -1,13 +1,13 @@
 //! Zigix kernel entry. Called from `long_mode_start` in
 //! `kernel/arch/x86_64/boot/start.S` after long mode is established.
 //!
-//! Phase 2 contract: emit the boot markers, run the in-kernel smoke registry,
+//! Phase 4 contract: emit the boot markers, run the in-kernel smoke registry,
 //! and halt through isa-debug-exit.
 //!   [ZIGIX:BOOT:START]   — serial UART is up, kmain has run.
 //!   [ZIGIX:BOOT:OK]      — kernel reached the end of init without panicking.
 //!   [ZIGIX:TEST:PASS:kernel_smoke] — kernel-side registry ran.
 //!
-//! Anything else (memory map parsing, IDT, scheduler) belongs to later phases.
+//! Anything else (VFS, syscalls, scheduler) belongs to later phases.
 
 const std = @import("std");
 
@@ -44,10 +44,15 @@ export fn kmain(magic: u64, info_ptr: u64) callconv(.c) noreturn {
         mm_stats.tracked_free_pages,
     });
 
+    arch.gdt.init();
+    arch.interrupts.init();
+    arch.interrupts.enable();
+    log.println(.info, "interrupt descriptor table online", .{});
+
     testing.runAll(kernel_tests);
     serial.writeLine("[ZIGIX:BOOT:OK]");
 
-    asm volatile ("cli");
+    arch.interrupts.disable();
     // Clean QEMU exit via isa-debug-exit (port 0xF4). QEMU exits with
     // status `(value << 1) | 1`, so 0x10 -> exit code 33. The smoke harness
     // treats that as the expected "kernel reached end" signal, while still
