@@ -13,7 +13,9 @@ const cpu = arch.cpu;
 
 const MAX_FDS: usize = 16;
 const MAX_OPEN_FILES: usize = 16;
+const MAX_PIPES: usize = 8;
 const MAX_PATH_BYTES: usize = 256;
+const PIPE_BUFFER_SIZE: usize = 4096;
 
 pub const O_CLOEXEC: u64 = 0o2000000;
 
@@ -40,11 +42,46 @@ const OpenFile = struct {
     ref_count: usize = 0,
 };
 
+const Pipe = struct {
+    used: bool = false,
+    buffer: [PIPE_BUFFER_SIZE]u8 = undefined,
+    head: usize = 0,
+    len: usize = 0,
+    read_refs: usize = 0,
+    write_refs: usize = 0,
+
+    fn read(self: *Pipe, dest: []u8) usize {
+        const amount = @min(dest.len, self.len);
+        var copied: usize = 0;
+        while (copied < amount) : (copied += 1) {
+            dest[copied] = self.buffer[self.head];
+            self.head = (self.head + 1) % self.buffer.len;
+        }
+        self.len -= amount;
+        if (self.len == 0) self.head = 0;
+        return amount;
+    }
+
+    fn write(self: *Pipe, bytes: []const u8) usize {
+        const available = self.buffer.len - self.len;
+        const amount = @min(bytes.len, available);
+        var copied: usize = 0;
+        while (copied < amount) : (copied += 1) {
+            const index = (self.head + self.len + copied) % self.buffer.len;
+            self.buffer[index] = bytes[copied];
+        }
+        self.len += amount;
+        return amount;
+    }
+};
+
 const FdTarget = union(enum) {
     stdin,
     stdout,
     stderr,
     file: *OpenFile,
+    pipe_read: *Pipe,
+    pipe_write: *Pipe,
 };
 
 const Descriptor = struct {
@@ -100,10 +137,12 @@ pub const Process = struct {
 };
 
 var open_files: [MAX_OPEN_FILES]OpenFile = [_]OpenFile{.{}} ** MAX_OPEN_FILES;
+var pipes: [MAX_PIPES]Pipe = [_]Pipe{.{}} ** MAX_PIPES;
 var current_process: Process = .{};
 
 pub fn init() void {
     for (&open_files) |*slot| slot.* = .{};
+    for (&pipes) |*slot| slot.* = .{};
     current_process.init();
 }
 
@@ -119,6 +158,7 @@ pub fn invoke(num: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64, a
         numbers.stat => sysStat(arg0, arg1),
         numbers.fstat => sysFstat(arg0, arg1),
         numbers.lseek => sysLseek(arg0, arg1, arg2),
+        numbers.pipe => sysPipe(arg0),
         numbers.dup => sysDup(arg0),
         numbers.exit => sysExit(arg0),
         else => errno.fail(errno.NOSYS),
@@ -172,6 +212,8 @@ fn sysRead(fd_arg: u64, buf_ptr: u64, len: u64) i64 {
         .stdin => 0,
         .stdout, .stderr => return errno.fail(errno.BADF),
         .file => |open_file| open_file.file.read(dest) catch |err| return mapFsError(err),
+        .pipe_read => |pipe| pipe.read(dest),
+        .pipe_write => return errno.fail(errno.BADF),
     };
     return @intCast(amount);
 }
@@ -187,7 +229,11 @@ fn sysWrite(fd_arg: u64, buf_ptr: u64, len: u64) i64 {
             serial.write(bytes);
             return @intCast(bytes.len);
         },
-        .stdin, .file => return errno.fail(errno.BADF),
+        .pipe_write => |pipe| {
+            if (pipe.read_refs == 0) return errno.fail(errno.PIPE);
+            return @intCast(pipe.write(bytes));
+        },
+        .stdin, .file, .pipe_read => return errno.fail(errno.BADF),
     }
 }
 
@@ -219,7 +265,7 @@ fn sysLseek(fd_arg: u64, offset_arg: u64, whence: u64) i64 {
     const descriptor = current_process.get(fd) orelse return errno.fail(errno.BADF);
     const open_file = switch (descriptor.target) {
         .file => |open_file| open_file,
-        .stdin, .stdout, .stderr => return errno.fail(errno.BADF),
+        .stdin, .stdout, .stderr, .pipe_read, .pipe_write => return errno.fail(errno.BADF),
     };
 
     const offset: i64 = @bitCast(offset_arg);
@@ -251,8 +297,29 @@ fn sysFstat(fd_arg: u64, stat_ptr: u64) i64 {
     const descriptor = current_process.get(fd) orelse return errno.fail(errno.BADF);
     out.* = switch (descriptor.target) {
         .stdin, .stdout, .stderr => .{ .mode = 0o020000 },
+        .pipe_read, .pipe_write => .{ .mode = 0o010000 },
         .file => |open_file| statFor(open_file.file.inode),
     };
+    return 0;
+}
+
+fn sysPipe(pipefd_ptr: u64) i64 {
+    const pipefd = userFdPair(pipefd_ptr) orelse return errno.fail(errno.FAULT);
+    const pipe = allocPipe() orelse return errno.fail(errno.NFILE);
+
+    const read_fd = current_process.install(.{ .target = .{ .pipe_read = pipe } }) orelse {
+        releasePipeRead(pipe);
+        releasePipeWrite(pipe);
+        return errno.fail(errno.NFILE);
+    };
+    const write_fd = current_process.install(.{ .target = .{ .pipe_write = pipe } }) orelse {
+        _ = current_process.close(read_fd);
+        releasePipeWrite(pipe);
+        return errno.fail(errno.NFILE);
+    };
+
+    pipefd[0] = @intCast(read_fd);
+    pipefd[1] = @intCast(write_fd);
     return 0;
 }
 
@@ -295,9 +362,25 @@ fn allocOpenFile(file: fs.vfs.File) ?*OpenFile {
     return null;
 }
 
+fn allocPipe() ?*Pipe {
+    for (&pipes) |*pipe| {
+        if (!pipe.used) {
+            pipe.* = .{
+                .used = true,
+                .read_refs = 1,
+                .write_refs = 1,
+            };
+            return pipe;
+        }
+    }
+    return null;
+}
+
 fn retainTarget(target: FdTarget) void {
     switch (target) {
         .file => |open_file| open_file.ref_count += 1,
+        .pipe_read => |pipe| pipe.read_refs += 1,
+        .pipe_write => |pipe| pipe.write_refs += 1,
         .stdin, .stdout, .stderr => {},
     }
 }
@@ -305,6 +388,8 @@ fn retainTarget(target: FdTarget) void {
 fn releaseTarget(target: FdTarget) void {
     switch (target) {
         .file => |open_file| releaseOpenFile(open_file),
+        .pipe_read => |pipe| releasePipeRead(pipe),
+        .pipe_write => |pipe| releasePipeWrite(pipe),
         .stdin, .stdout, .stderr => {},
     }
 }
@@ -315,6 +400,20 @@ fn releaseOpenFile(open_file: *OpenFile) void {
         return;
     }
     open_file.* = .{};
+}
+
+fn releasePipeRead(pipe: *Pipe) void {
+    if (pipe.read_refs > 0) pipe.read_refs -= 1;
+    releasePipeIfUnused(pipe);
+}
+
+fn releasePipeWrite(pipe: *Pipe) void {
+    if (pipe.write_refs > 0) pipe.write_refs -= 1;
+    releasePipeIfUnused(pipe);
+}
+
+fn releasePipeIfUnused(pipe: *Pipe) void {
+    if (pipe.read_refs == 0 and pipe.write_refs == 0) pipe.* = .{};
 }
 
 pub fn fdCloseOnExecForTest(fd_arg: u64) ?bool {
@@ -358,6 +457,11 @@ fn userCString(ptr: u64) ?[]const u8 {
 }
 
 fn userStat(ptr: u64) ?*Stat {
+    if (ptr == 0) return null;
+    return @ptrFromInt(ptr);
+}
+
+fn userFdPair(ptr: u64) ?*[2]i32 {
     if (ptr == 0) return null;
     return @ptrFromInt(ptr);
 }

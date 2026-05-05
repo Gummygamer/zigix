@@ -5,20 +5,22 @@ not chase Linux binary compatibility.
 
 Update this file whenever syscall or POSIX semantics change.
 
-| API      | Status  | Notes                          | Tests |
-| -------- | ------- | ------------------------------ | ----- |
-| `read`   | missing | planned for Phase 6            | none  |
-| `write`  | missing | planned for Phase 6            | none  |
-| `open`   | missing | planned for Phase 6            | none  |
-| `close`  | missing | planned for Phase 6            | none  |
-| `lseek`  | missing | planned for Phase 6            | none  |
-| `stat`   | missing | planned for Phase 6            | none  |
-| `exit`   | missing | planned for Phase 6            | none  |
-| `execve` | missing | planned for Phase 10           | none  |
-| `fork`   | missing | decision pending (Phase 13)    | none  |
-| `mmap`   | missing | planned for Phase 13+          | none  |
-| signals  | missing | planned for Phase 13+          | none  |
-| sockets  | missing | future                         | none  |
+| API      | Status  | Notes                                      | Tests |
+| -------- | ------- | ------------------------------------------ | ----- |
+| `read`   | partial | VFS files, stdin EOF, pipe read ends       | `syscall_vfs`, `syscall_fd_table`, `syscall_pipe` |
+| `write`  | partial | stdout/stderr serial output, pipe write ends | `syscall_write`, `syscall_pipe` |
+| `open`   | partial | read-only absolute VFS paths               | `syscall_vfs`, `syscall_fd_table` |
+| `close`  | partial | current process fd table only              | `syscall_vfs`, `syscall_fd_table`, `syscall_pipe` |
+| `lseek`  | partial | VFS files only                             | `syscall_vfs`, `syscall_fd_table` |
+| `stat`   | partial | compact Zigix stat layout                  | `syscall_vfs` |
+| `pipe`   | partial | bounded buffer; blocking deferred          | `syscall_pipe` |
+| `dup`    | partial | lowest free fd; clears close-on-exec       | `syscall_fd_table`, `syscall_pipe` |
+| `exit`   | partial | exits QEMU through debug port              | userspace init smoke |
+| `execve` | missing | planned for Phase 10                       | none  |
+| `fork`   | missing | decision pending (Phase 13)                | none  |
+| `mmap`   | missing | planned for Phase 13+                      | none  |
+| signals  | missing | planned for Phase 13+                      | none  |
+| sockets  | missing | future                                     | none  |
 
 Status values:
 

@@ -10,5 +10,6 @@ pub const close: u64 = 3;
 pub const stat: u64 = 4;
 pub const fstat: u64 = 5;
 pub const lseek: u64 = 8;
+pub const pipe: u64 = 22;
 pub const dup: u64 = 32;
 pub const exit: u64 = 60;

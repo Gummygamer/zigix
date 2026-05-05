@@ -1,7 +1,7 @@
 //! Zigix kernel entry. Called from `long_mode_start` in
 //! `kernel/arch/x86_64/boot/start.S` after long mode is established.
 //!
-//! Phase 8 contract: emit the boot markers, mount the initramfs-backed VFS,
+//! Phase 9 contract: emit the boot markers, mount the initramfs-backed VFS,
 //! run the in-kernel smoke registry,
 //! and launch the first userspace init.
 //!   [ZIGIX:BOOT:START]   — serial UART is up, kmain has run.

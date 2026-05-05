@@ -1,10 +1,10 @@
 //! Zigix build orchestration.
 //!
-//! Phase 8 steps:
+//! Phase 9 steps:
 //!   * `check-toolchain`     -- runs the host-side toolchain check script.
 //!   * `kernel`              -- builds zig-out/bin/zigix-kernel (multiboot1 ELF).
 //!   * `validate-kernel-elf` -- sanity-checks the ELF (32-bit ELF check, multiboot magic).
-//!   * `qemu-smoke`          -- boots the kernel headlessly and parses Phase 8 serial markers.
+//!   * `qemu-smoke`          -- boots the kernel headlessly and parses Phase 9 serial markers.
 //!   * `host-test`           -- runs host-side unit tests.
 //!
 //! IMPORTANT: invoke this build via `tools/toolchain/zig-bun build <step>`,
@@ -289,14 +289,14 @@ pub fn build(b: *std.Build) void {
         "tools/qemu/smoke_test.py",
         "zig-out/serial.log",
         "--phase",
-        "phase8",
+        "phase9",
     });
     smoke.setName("qemu-smoke-parse");
     smoke.step.dependOn(&qemu_run.step);
 
     const qemu_step = b.step(
         "qemu-smoke",
-        "Boot the kernel in QEMU and verify Phase 8 markers on COM1",
+        "Boot the kernel in QEMU and verify Phase 9 markers on COM1",
     );
     qemu_step.dependOn(&smoke.step);
 

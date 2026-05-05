@@ -45,6 +45,11 @@ pub const TEST_syscall_fd_table = testing.Test{
     .run = syscallFdTable,
 };
 
+pub const TEST_syscall_pipe = testing.Test{
+    .name = "syscall_pipe",
+    .run = syscallPipe,
+};
+
 pub const TEST_elf_static_loader = testing.Test{
     .name = "elf_static_loader",
     .run = elfStaticLoader,
@@ -199,6 +204,73 @@ fn syscallFdTable() testing.TestError!void {
     }
     if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(cloexec_dup), 0, 0, 0, 0, 0) != 0) {
         return error.SyscallCloseFailed;
+    }
+}
+
+fn syscallPipe() testing.TestError!void {
+    var fds: [2]i32 = undefined;
+    if (syscall.dispatch.invoke(syscall.numbers.pipe, @intFromPtr(&fds), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallPipeFailed;
+    }
+    if (fds[0] < 3 or fds[1] < 3 or fds[0] == fds[1]) return error.SyscallPipeBadFds;
+
+    const message = "pipe-ok";
+    if (syscall.dispatch.invoke(syscall.numbers.write, @intCast(fds[1]), @intFromPtr(message.ptr), message.len, 0, 0, 0) != message.len) {
+        return error.SyscallPipeWriteFailed;
+    }
+
+    var buf: [message.len]u8 = undefined;
+    if (syscall.dispatch.invoke(syscall.numbers.read, @intCast(fds[0]), @intFromPtr(&buf), buf.len, 0, 0, 0) != buf.len) {
+        return error.SyscallPipeReadFailed;
+    }
+    if (!std.mem.eql(u8, &buf, message)) return error.SyscallPipeWrongData;
+
+    const dup_write = syscall.dispatch.invoke(syscall.numbers.dup, @intCast(fds[1]), 0, 0, 0, 0, 0);
+    if (dup_write < 3) return error.SyscallPipeDupFailed;
+
+    const tail = "!";
+    if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(fds[1]), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallPipeCloseFailed;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.write, @intCast(dup_write), @intFromPtr(tail.ptr), tail.len, 0, 0, 0) != tail.len) {
+        return error.SyscallPipeDupWriteFailed;
+    }
+
+    var tail_buf: [1]u8 = undefined;
+    if (syscall.dispatch.invoke(syscall.numbers.read, @intCast(fds[0]), @intFromPtr(&tail_buf), tail_buf.len, 0, 0, 0) != tail_buf.len) {
+        return error.SyscallPipeDupReadFailed;
+    }
+    if (tail_buf[0] != '!') return error.SyscallPipeDupWrongData;
+
+    if (syscall.dispatch.invoke(syscall.numbers.write, @intCast(fds[0]), @intFromPtr(tail.ptr), tail.len, 0, 0, 0) != -syscall.errno.BADF) {
+        return error.SyscallPipeReadEndWritable;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.read, @intCast(dup_write), @intFromPtr(&tail_buf), tail_buf.len, 0, 0, 0) != -syscall.errno.BADF) {
+        return error.SyscallPipeWriteEndReadable;
+    }
+
+    if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(dup_write), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallPipeCloseFailed;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.read, @intCast(fds[0]), @intFromPtr(&tail_buf), tail_buf.len, 0, 0, 0) != 0) {
+        return error.SyscallPipeEofFailed;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(fds[0]), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallPipeCloseFailed;
+    }
+
+    var closed_read_fds: [2]i32 = undefined;
+    if (syscall.dispatch.invoke(syscall.numbers.pipe, @intFromPtr(&closed_read_fds), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallPipeFailed;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(closed_read_fds[0]), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallPipeCloseFailed;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.write, @intCast(closed_read_fds[1]), @intFromPtr(tail.ptr), tail.len, 0, 0, 0) != -syscall.errno.PIPE) {
+        return error.SyscallPipeNoReadersFailed;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(closed_read_fds[1]), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallPipeCloseFailed;
     }
 }
 

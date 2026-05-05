@@ -134,7 +134,7 @@ run "smoke-parser-accepts-phase8" bash -c '
 run "smoke-parser-accepts-phase9" bash -c '
   tmp=$(mktemp)
   trap "rm -f $tmp" EXIT
-  printf "[ZIGIX:BOOT:START]\n[ZIGIX:TOOLCHAIN:bun-zig=0.15.2]\n[ZIGIX:TEST:PASS:syscall_fd_table]\n[ZIGIX:BOOT:OK]\n" > "$tmp"
+  printf "[ZIGIX:BOOT:START]\n[ZIGIX:TOOLCHAIN:bun-zig=0.15.2]\n[ZIGIX:TEST:PASS:syscall_fd_table]\n[ZIGIX:TEST:PASS:syscall_pipe]\n[ZIGIX:BOOT:OK]\n" > "$tmp"
   tools/qemu/smoke_test.py "$tmp" --phase phase9
 '
 
@@ -164,23 +164,23 @@ run "qemu-runner-fails-on-missing-kernel" bash -c '
 '
 
 # 8. If ZIGIX_BUN_ZIG is set, run toolchain check + host tests + the full
-#    kernel build + qemu smoke. This is the real Phase 8 acceptance gate.
+#    kernel build + qemu smoke. This is the real Phase 9 acceptance gate.
 if [[ -n "${ZIGIX_BUN_ZIG:-}" ]]; then
   run "check-toolchain" tools/toolchain/check-bun-zig.sh
   run "host-test" tools/toolchain/zig-bun build host-test
   run "build-kernel" tools/toolchain/zig-bun build kernel
   run "validate-kernel-elf" tools/toolchain/zig-bun build validate-kernel-elf
   if command -v qemu-system-x86_64 >/dev/null 2>&1; then
-    run "qemu-smoke-phase8" tools/toolchain/zig-bun build qemu-smoke
+    run "qemu-smoke-phase9" tools/toolchain/zig-bun build qemu-smoke
   else
-    skip "qemu-smoke-phase8" "qemu-system-x86_64 not installed"
+    skip "qemu-smoke-phase9" "qemu-system-x86_64 not installed"
   fi
 else
   skip "check-toolchain" "ZIGIX_BUN_ZIG is not set"
   skip "host-test" "ZIGIX_BUN_ZIG is not set"
   skip "build-kernel" "ZIGIX_BUN_ZIG is not set"
   skip "validate-kernel-elf" "ZIGIX_BUN_ZIG is not set"
-  skip "qemu-smoke-phase8" "ZIGIX_BUN_ZIG is not set"
+  skip "qemu-smoke-phase9" "ZIGIX_BUN_ZIG is not set"
 fi
 
 printf '\n=== summary ===\n'

@@ -22,7 +22,7 @@ rejected.
 | 6     | Syscall ABI v0                       | done         | `[ZIGIX:SYSCALL:OK]` |
 | 7     | ELF64 static loader                  | done         | `[ZIGIX:ELF:OK]` |
 | 8     | User mode + init                     | done         | `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
-| 9     | File descriptors and basic Unix I/O  | in progress  | `[ZIGIX:TEST:PASS:syscall_fd_table]`; pipes marker TBD |
+| 9     | File descriptors and basic Unix I/O  | in progress  | `[ZIGIX:TEST:PASS:syscall_fd_table]`, `[ZIGIX:TEST:PASS:syscall_pipe]` |
 | 10–15 | Userspace expansion                  | pending      | per-phase markers TBD |
 
 ## Phase 0 — Toolchain and smoke-test skeleton ✅
@@ -192,8 +192,9 @@ userspace phases.
 ## Phase 9 — File descriptors and basic Unix I/O
 
 - [x] Per-process file table, `dup`, close-on-exec metadata.
-- [ ] Pipes (`pipe`, blocking semantics), basic read/write to inodes
-  served by memfs / initramfs.
+- [x] `pipe`, descriptor endpoint plumbing, and basic read/write self-test.
+- [ ] Blocking pipe semantics once scheduling/process lifecycle exists.
+- [ ] Writable inode-backed files beyond read-only memfs / initramfs.
 
 ## Phase 10 — `exec` and process lifecycle
 
@@ -242,13 +243,13 @@ userspace phases.
 
 The next thing to do, concretely:
 
-1. Source `.env`, then run `ci/local.sh` to confirm the Phase 8 init smoke
+1. Source `.env`, then run `ci/local.sh` to confirm the Phase 9 smoke
    still passes.
 2. Read the Phase 9 notes above.
-3. Add pipes and their descriptor plumbing on top of the process-owned file
-   table.
-4. Extend the syscall tests with pipe read/write behavior before adding
-   blocking semantics.
+3. Add blocking pipe semantics after the process lifecycle work gives the
+   kernel something to block and wake.
+4. Decide how writable files should fit the current read-only initramfs/memfs
+   model before expanding inode write support.
 
 Operational reminders for a fresh session:
 
