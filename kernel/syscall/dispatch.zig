@@ -12,7 +12,10 @@ const serial = arch.serial;
 const cpu = arch.cpu;
 
 const MAX_FDS: usize = 16;
+const MAX_OPEN_FILES: usize = 16;
 const MAX_PATH_BYTES: usize = 256;
+
+pub const O_CLOEXEC: u64 = 0o2000000;
 
 const SEEK_SET: u64 = 0;
 const SEEK_CUR: u64 = 1;
@@ -31,9 +34,77 @@ pub const Stat = extern struct {
     blocks: i64 = 0,
 };
 
-var fd_table: [MAX_FDS]?fs.vfs.File = [_]?fs.vfs.File{null} ** MAX_FDS;
+const OpenFile = struct {
+    used: bool = false,
+    file: fs.vfs.File = undefined,
+    ref_count: usize = 0,
+};
+
+const FdTarget = union(enum) {
+    stdin,
+    stdout,
+    stderr,
+    file: *OpenFile,
+};
+
+const Descriptor = struct {
+    target: FdTarget,
+    close_on_exec: bool = false,
+};
+
+pub const Process = struct {
+    fd_table: [MAX_FDS]?Descriptor = [_]?Descriptor{null} ** MAX_FDS,
+
+    pub fn init(self: *Process) void {
+        for (&self.fd_table) |*slot| slot.* = null;
+        self.fd_table[0] = .{ .target = .stdin };
+        self.fd_table[1] = .{ .target = .stdout };
+        self.fd_table[2] = .{ .target = .stderr };
+    }
+
+    fn get(self: *Process, fd: usize) ?Descriptor {
+        if (fd >= self.fd_table.len) return null;
+        return self.fd_table[fd];
+    }
+
+    fn install(self: *Process, descriptor: Descriptor) ?usize {
+        const fd = self.allocFd() orelse return null;
+        self.fd_table[fd] = descriptor;
+        return fd;
+    }
+
+    fn dup(self: *Process, fd: usize) ?usize {
+        var descriptor = self.get(fd) orelse return null;
+        descriptor.close_on_exec = false;
+        retainTarget(descriptor.target);
+        return self.install(descriptor) orelse {
+            releaseTarget(descriptor.target);
+            return null;
+        };
+    }
+
+    fn close(self: *Process, fd: usize) bool {
+        const descriptor = self.get(fd) orelse return false;
+        releaseTarget(descriptor.target);
+        self.fd_table[fd] = null;
+        return true;
+    }
+
+    fn allocFd(self: *Process) ?usize {
+        var fd: usize = 0;
+        while (fd < self.fd_table.len) : (fd += 1) {
+            if (self.fd_table[fd] == null) return fd;
+        }
+        return null;
+    }
+};
+
+var open_files: [MAX_OPEN_FILES]OpenFile = [_]OpenFile{.{}} ** MAX_OPEN_FILES;
+var current_process: Process = .{};
+
 pub fn init() void {
-    for (&fd_table) |*slot| slot.* = null;
+    for (&open_files) |*slot| slot.* = .{};
+    current_process.init();
 }
 
 pub fn invoke(num: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64) i64 {
@@ -48,6 +119,7 @@ pub fn invoke(num: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64, a
         numbers.stat => sysStat(arg0, arg1),
         numbers.fstat => sysFstat(arg0, arg1),
         numbers.lseek => sysLseek(arg0, arg1, arg2),
+        numbers.dup => sysDup(arg0),
         numbers.exit => sysExit(arg0),
         else => errno.fail(errno.NOSYS),
     };
@@ -95,12 +167,12 @@ fn sysRead(fd_arg: u64, buf_ptr: u64, len: u64) i64 {
     if (len == 0) return 0;
     const dest = userBytesMut(buf_ptr, len) orelse return errno.fail(errno.FAULT);
 
-    if (fd == 0) return 0;
-    if (fd < 3) return errno.fail(errno.BADF);
-
-    var file = fd_table[fd] orelse return errno.fail(errno.BADF);
-    const amount = file.read(dest) catch |err| return mapFsError(err);
-    fd_table[fd] = file;
+    const descriptor = current_process.get(fd) orelse return errno.fail(errno.BADF);
+    const amount = switch (descriptor.target) {
+        .stdin => 0,
+        .stdout, .stderr => return errno.fail(errno.BADF),
+        .file => |open_file| open_file.file.read(dest) catch |err| return mapFsError(err),
+    };
     return @intCast(amount);
 }
 
@@ -109,48 +181,58 @@ fn sysWrite(fd_arg: u64, buf_ptr: u64, len: u64) i64 {
     if (len == 0) return 0;
     const bytes = userBytesConst(buf_ptr, len) orelse return errno.fail(errno.FAULT);
 
-    if (fd == 1 or fd == 2) {
-        serial.write(bytes);
-        return @intCast(bytes.len);
+    const descriptor = current_process.get(fd) orelse return errno.fail(errno.BADF);
+    switch (descriptor.target) {
+        .stdout, .stderr => {
+            serial.write(bytes);
+            return @intCast(bytes.len);
+        },
+        .stdin, .file => return errno.fail(errno.BADF),
     }
-    return errno.fail(errno.BADF);
 }
 
 fn sysOpen(path_ptr: u64, flags: u64, mode: u64) i64 {
     _ = mode;
-    if (flags != 0) return errno.fail(errno.INVAL);
+    if ((flags & ~O_CLOEXEC) != 0) return errno.fail(errno.INVAL);
 
     const path = userCString(path_ptr) orelse return errno.fail(errno.FAULT);
-    const slot = allocFd() orelse return errno.fail(errno.NFILE);
-    fd_table[slot] = fs.vfs.open(path) catch |err| return mapFsError(err);
+    const file = fs.vfs.open(path) catch |err| return mapFsError(err);
+    const open_file = allocOpenFile(file) orelse return errno.fail(errno.NFILE);
+    const slot = current_process.install(.{
+        .target = .{ .file = open_file },
+        .close_on_exec = (flags & O_CLOEXEC) != 0,
+    }) orelse {
+        releaseOpenFile(open_file);
+        return errno.fail(errno.NFILE);
+    };
     return @intCast(slot);
 }
 
 fn sysClose(fd_arg: u64) i64 {
     const fd = fdIndex(fd_arg) orelse return errno.fail(errno.BADF);
-    if (fd < 3) return 0;
-    if (fd_table[fd] == null) return errno.fail(errno.BADF);
-    fd_table[fd] = null;
+    if (!current_process.close(fd)) return errno.fail(errno.BADF);
     return 0;
 }
 
 fn sysLseek(fd_arg: u64, offset_arg: u64, whence: u64) i64 {
     const fd = fdIndex(fd_arg) orelse return errno.fail(errno.BADF);
-    if (fd < 3) return errno.fail(errno.BADF);
-    var file = fd_table[fd] orelse return errno.fail(errno.BADF);
+    const descriptor = current_process.get(fd) orelse return errno.fail(errno.BADF);
+    const open_file = switch (descriptor.target) {
+        .file => |open_file| open_file,
+        .stdin, .stdout, .stderr => return errno.fail(errno.BADF),
+    };
 
     const offset: i64 = @bitCast(offset_arg);
     const base: i64 = switch (whence) {
         SEEK_SET => 0,
-        SEEK_CUR => @intCast(file.offset),
-        SEEK_END => @intCast(file.inode.data.len),
+        SEEK_CUR => @intCast(open_file.file.offset),
+        SEEK_END => @intCast(open_file.file.inode.data.len),
         else => return errno.fail(errno.INVAL),
     };
     const next = base + offset;
     if (next < 0) return errno.fail(errno.INVAL);
 
-    file.offset = @intCast(next);
-    fd_table[fd] = file;
+    open_file.file.offset = @intCast(next);
     return next;
 }
 
@@ -166,14 +248,21 @@ fn sysFstat(fd_arg: u64, stat_ptr: u64) i64 {
     const fd = fdIndex(fd_arg) orelse return errno.fail(errno.BADF);
     const out = userStat(stat_ptr) orelse return errno.fail(errno.FAULT);
 
-    if (fd == 0 or fd == 1 or fd == 2) {
-        out.* = .{ .mode = 0o020000 };
-        return 0;
-    }
-
-    const file = fd_table[fd] orelse return errno.fail(errno.BADF);
-    out.* = statFor(file.inode);
+    const descriptor = current_process.get(fd) orelse return errno.fail(errno.BADF);
+    out.* = switch (descriptor.target) {
+        .stdin, .stdout, .stderr => .{ .mode = 0o020000 },
+        .file => |open_file| statFor(open_file.file.inode),
+    };
     return 0;
+}
+
+fn sysDup(fd_arg: u64) i64 {
+    const fd = fdIndex(fd_arg) orelse return errno.fail(errno.BADF);
+    const new_fd = current_process.dup(fd) orelse {
+        if (current_process.get(fd) == null) return errno.fail(errno.BADF);
+        return errno.fail(errno.NFILE);
+    };
+    return @intCast(new_fd);
 }
 
 fn sysExit(status: u64) noreturn {
@@ -192,16 +281,50 @@ fn statFor(inode: *const fs.vfs.Inode) Stat {
     };
 }
 
-fn allocFd() ?usize {
-    var fd: usize = 3;
-    while (fd < fd_table.len) : (fd += 1) {
-        if (fd_table[fd] == null) return fd;
+fn allocOpenFile(file: fs.vfs.File) ?*OpenFile {
+    for (&open_files) |*open_file| {
+        if (!open_file.used) {
+            open_file.* = .{
+                .used = true,
+                .file = file,
+                .ref_count = 1,
+            };
+            return open_file;
+        }
     }
     return null;
 }
 
+fn retainTarget(target: FdTarget) void {
+    switch (target) {
+        .file => |open_file| open_file.ref_count += 1,
+        .stdin, .stdout, .stderr => {},
+    }
+}
+
+fn releaseTarget(target: FdTarget) void {
+    switch (target) {
+        .file => |open_file| releaseOpenFile(open_file),
+        .stdin, .stdout, .stderr => {},
+    }
+}
+
+fn releaseOpenFile(open_file: *OpenFile) void {
+    if (open_file.ref_count > 1) {
+        open_file.ref_count -= 1;
+        return;
+    }
+    open_file.* = .{};
+}
+
+pub fn fdCloseOnExecForTest(fd_arg: u64) ?bool {
+    const fd = fdIndex(fd_arg) orelse return null;
+    const descriptor = current_process.get(fd) orelse return null;
+    return descriptor.close_on_exec;
+}
+
 fn fdIndex(fd: u64) ?usize {
-    if (fd >= fd_table.len) return null;
+    if (fd >= MAX_FDS) return null;
     return @intCast(fd);
 }
 

@@ -50,6 +50,7 @@ The syscall layer uses Linux errno numbers for the exposed set:
 | 4 | `stat` | `int stat(const char *path, struct zigix_stat *st)` |
 | 5 | `fstat` | `int fstat(int fd, struct zigix_stat *st)` |
 | 8 | `lseek` | `off_t lseek(int fd, off_t offset, int whence)` |
+| 32 | `dup` | `int dup(int oldfd)` |
 | 60 | `exit` | `void exit(int status)` |
 
 ### `read`
@@ -68,15 +69,16 @@ Errors: `EBADF`, `EFAULT`.
 
 ### `open`
 
-Opens an absolute VFS path read-only. `flags` must be `0`; `mode` is ignored.
-Returned descriptors start at `3`.
+Opens an absolute VFS path read-only. `flags` may be `0` or `O_CLOEXEC`
+(`02000000`); `mode` is ignored. Returned descriptors use the process file
+table and start at `3` while standard descriptors are still open.
 
 Errors: `EINVAL`, `EFAULT`, `ENFILE`, VFS-mapped errors.
 
 ### `close`
 
-Closes descriptors `>= 3`. Closing `0`, `1`, or `2` is accepted as a no-op in
-v0 because there is no process file table yet.
+Closes a descriptor in the current process file table. This includes standard
+descriptors `0`, `1`, and `2`; later opens reuse the lowest available slot.
 
 Errors: `EBADF`.
 
@@ -86,6 +88,15 @@ Supports `SEEK_SET = 0`, `SEEK_CUR = 1`, and `SEEK_END = 2` on VFS-backed
 descriptors. Negative resulting offsets fail.
 
 Errors: `EBADF`, `EINVAL`.
+
+### `dup`
+
+Duplicates an existing descriptor into the lowest free descriptor slot. VFS
+descriptors share one open-file state, so file offsets move together across the
+original and duplicate. The duplicate's close-on-exec flag is cleared, matching
+Unix `dup` semantics.
+
+Errors: `EBADF`, `ENFILE`.
 
 ### `stat` / `fstat`
 
@@ -120,3 +131,8 @@ the trap path from a kernel self-test, and expects:
 ```text
 [ZIGIX:SYSCALL:OK]
 ```
+
+The first Phase 9 file-descriptor slice adds an in-kernel syscall test named
+`syscall_fd_table`. It covers process-owned descriptor slots, `dup` sharing
+file offsets, duplicate lifetime after closing the original descriptor, and
+close-on-exec metadata.

@@ -22,7 +22,7 @@ rejected.
 | 6     | Syscall ABI v0                       | done         | `[ZIGIX:SYSCALL:OK]` |
 | 7     | ELF64 static loader                  | done         | `[ZIGIX:ELF:OK]` |
 | 8     | User mode + init                     | done         | `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
-| 9     | File descriptors and basic Unix I/O  | next         | markers TBD |
+| 9     | File descriptors and basic Unix I/O  | in progress  | `[ZIGIX:TEST:PASS:syscall_fd_table]`; pipes marker TBD |
 | 10–15 | Userspace expansion                  | pending      | per-phase markers TBD |
 
 ## Phase 0 — Toolchain and smoke-test skeleton ✅
@@ -191,8 +191,8 @@ userspace phases.
 
 ## Phase 9 — File descriptors and basic Unix I/O
 
-- Per-process file table, dup, close-on-exec.
-- Pipes (`pipe`, blocking semantics), basic read/write to inodes
+- [x] Per-process file table, `dup`, close-on-exec metadata.
+- [ ] Pipes (`pipe`, blocking semantics), basic read/write to inodes
   served by memfs / initramfs.
 
 ## Phase 10 — `exec` and process lifecycle
@@ -245,10 +245,10 @@ The next thing to do, concretely:
 1. Source `.env`, then run `ci/local.sh` to confirm the Phase 8 init smoke
    still passes.
 2. Read the Phase 9 notes above.
-3. Add the first process-owned file descriptor table instead of the current
-   global syscall table.
-4. Add `dup` and close-on-exec metadata, then extend the syscall tests before
-   adding pipes.
+3. Add pipes and their descriptor plumbing on top of the process-owned file
+   table.
+4. Extend the syscall tests with pipe read/write behavior before adding
+   blocking semantics.
 
 Operational reminders for a fresh session:
 

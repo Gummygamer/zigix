@@ -40,6 +40,11 @@ pub const TEST_syscall_vfs = testing.Test{
     .run = syscallVfs,
 };
 
+pub const TEST_syscall_fd_table = testing.Test{
+    .name = "syscall_fd_table",
+    .run = syscallFdTable,
+};
+
 pub const TEST_elf_static_loader = testing.Test{
     .name = "elf_static_loader",
     .run = elfStaticLoader,
@@ -140,6 +145,59 @@ fn syscallVfs() testing.TestError!void {
     if (stat.size <= 0) return error.SyscallStatEmptyFile;
 
     if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(fd), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallCloseFailed;
+    }
+}
+
+fn syscallFdTable() testing.TestError!void {
+    const path = "/init\x00";
+    const fd = syscall.dispatch.invoke(syscall.numbers.open, @intFromPtr(path.ptr), 0, 0, 0, 0, 0);
+    if (fd < 3) return error.SyscallOpenFailed;
+
+    const dup_fd = syscall.dispatch.invoke(syscall.numbers.dup, @intCast(fd), 0, 0, 0, 0, 0);
+    if (dup_fd < 3 or dup_fd == fd) return error.SyscallDupFailed;
+
+    var buf: [4]u8 = undefined;
+    if (syscall.dispatch.invoke(syscall.numbers.read, @intCast(fd), @intFromPtr(&buf), buf.len, 0, 0, 0) != buf.len) {
+        return error.SyscallReadFailed;
+    }
+    if (!std.mem.eql(u8, &buf, "\x7fELF")) return error.SyscallReadWrongData;
+
+    var class_buf: [1]u8 = undefined;
+    if (syscall.dispatch.invoke(syscall.numbers.read, @intCast(dup_fd), @intFromPtr(&class_buf), class_buf.len, 0, 0, 0) != class_buf.len) {
+        return error.SyscallDupReadFailed;
+    }
+    if (class_buf[0] != 2) return error.SyscallDupDidNotShareOffset;
+
+    if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(fd), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallCloseFailed;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.lseek, @intCast(dup_fd), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallLseekFailed;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.read, @intCast(dup_fd), @intFromPtr(&buf), buf.len, 0, 0, 0) != buf.len) {
+        return error.SyscallReadAfterCloseFailed;
+    }
+    if (!std.mem.eql(u8, &buf, "\x7fELF")) return error.SyscallDupLostOpenFile;
+    if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(dup_fd), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallCloseFailed;
+    }
+
+    const cloexec_fd = syscall.dispatch.invoke(syscall.numbers.open, @intFromPtr(path.ptr), syscall.dispatch.O_CLOEXEC, 0, 0, 0, 0);
+    if (cloexec_fd < 3) return error.SyscallCloexecOpenFailed;
+    if (syscall.dispatch.fdCloseOnExecForTest(@intCast(cloexec_fd)) != true) {
+        return error.SyscallCloexecFlagMissing;
+    }
+
+    const cloexec_dup = syscall.dispatch.invoke(syscall.numbers.dup, @intCast(cloexec_fd), 0, 0, 0, 0, 0);
+    if (cloexec_dup < 3) return error.SyscallCloexecDupFailed;
+    if (syscall.dispatch.fdCloseOnExecForTest(@intCast(cloexec_dup)) != false) {
+        return error.SyscallDupPreservedCloexec;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(cloexec_fd), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallCloseFailed;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(cloexec_dup), 0, 0, 0, 0, 0) != 0) {
         return error.SyscallCloseFailed;
     }
 }

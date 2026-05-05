@@ -35,3 +35,7 @@
 [ZIGIX:BOOT:OK]
 [ZIGIX:INIT:START]
 [ZIGIX:INIT:OK]
+
+[phase9]
+[ZIGIX:BOOT:OK]
+[ZIGIX:TEST:PASS:syscall_fd_table]
