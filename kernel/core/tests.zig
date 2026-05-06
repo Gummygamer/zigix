@@ -64,6 +64,11 @@ pub const TEST_process_wait_nohang = testing.Test{
     .run = processWaitNohang,
 };
 
+pub const TEST_process_wait_blocking = testing.Test{
+    .name = "process_wait_blocking",
+    .run = processWaitBlocking,
+};
+
 pub const TEST_process_address_space = testing.Test{
     .name = "process_address_space",
     .run = processAddressSpace,
@@ -77,6 +82,11 @@ pub const TEST_process_page_tables = testing.Test{
 pub const TEST_process_scheduler_groundwork = testing.Test{
     .name = "process_scheduler_groundwork",
     .run = processSchedulerGroundwork,
+};
+
+pub const TEST_process_spawn_resume = testing.Test{
+    .name = "process_spawn_resume",
+    .run = processSpawnResume,
 };
 
 pub const TEST_spawn_child_image = testing.Test{
@@ -366,6 +376,27 @@ fn processWaitNohang() testing.TestError!void {
     }
 }
 
+fn processWaitBlocking() testing.TestError!void {
+    const parent = proc.currentPid();
+    const path = "/exec-ok\x00";
+    const arg0 = "/exec-ok\x00";
+    const argv = [_]u64{ @intFromPtr(arg0.ptr), 0 };
+
+    const child_ret = syscall.dispatch.invoke(syscall.numbers.posix_spawn, @intFromPtr(path.ptr), @intFromPtr(&argv), 0, 0, 0, 0);
+    if (child_ret <= 0) return error.ProcessBlockingWaitSpawnFailed;
+
+    const child: proc.Pid = @intCast(child_ret);
+    if (proc.currentPid() != parent) return error.ProcessBlockingWaitSpawnChangedCurrent;
+    if (proc.runState(child) != .runnable) return error.ProcessBlockingWaitChildNotRunnable;
+
+    var status: i32 = 0x7777;
+    const waited = syscall.dispatch.invoke(syscall.numbers.wait4, child, @intFromPtr(&status), 0, 0, 0, 0);
+    if (waited != child) return error.ProcessBlockingWaitFailed;
+    if (status != 0) return error.ProcessBlockingWaitStatusWrong;
+    if (proc.currentPid() != parent) return error.ProcessBlockingWaitWrongCurrent;
+    if (proc.runState(child) != null) return error.ProcessBlockingWaitChildSurvivedReap;
+}
+
 fn processAddressSpace() testing.TestError!void {
     if (proc.currentRegionCount() != 0) return error.RegionRegistryNotEmpty;
 
@@ -473,6 +504,7 @@ fn processSchedulerGroundwork() testing.TestError!void {
     if (proc.runState(parent) != .runnable) return error.ProcessParentNotRunnable;
     if (proc.runState(child) != .running) return error.ProcessChildNotRunning;
     if (mm.paging.activeAddressSpace().pml4 != child_space.pml4) return error.ProcessSwitchWrongAddressSpace;
+    if (arch.gdt.kernelStackTop() != child_stack_top) return error.ProcessSwitchWrongKernelStack;
 
     try proc.switchTo(parent);
     if (proc.currentPid() != parent) return error.ProcessSwitchBackFailed;
@@ -484,6 +516,42 @@ fn processSchedulerGroundwork() testing.TestError!void {
     const waited = syscall.dispatch.invoke(syscall.numbers.wait4, child, 0, 0, 0, 0, 0);
     if (waited != child) return error.ProcessSchedulerChildReapFailed;
     if (proc.runState(child) != null) return error.ProcessSchedulerChildSurvivedReap;
+}
+
+fn processSpawnResume() testing.TestError!void {
+    const parent = proc.currentPid();
+    const parent_space = mm.paging.activeAddressSpace();
+    const parent_stack_top = proc.kernelStackTop(parent) orelse return error.ProcessParentKernelStackMissing;
+    const child = try proc.spawnChild(parent);
+    var child_reaped = false;
+    errdefer {
+        if (proc.currentPid() != parent) {
+            proc.switchTo(parent) catch {};
+        }
+        if (!child_reaped and proc.runState(child) != null) {
+            _ = proc.markExited(child, 1);
+            _ = syscall.dispatch.invoke(syscall.numbers.wait4, child, 0, 0, 0, 0, 0);
+        }
+        proc.finishSpawnResume(parent, child);
+    }
+
+    const context = try proc.beginSpawnResume(parent, child);
+    try proc.switchTo(child);
+    const handoff = proc.exitCurrent(23) orelse return error.ProcessSpawnResumeMissing;
+    if (handoff.context != context) return error.ProcessSpawnResumeWrongContext;
+    if (handoff.return_value != child) return error.ProcessSpawnResumeWrongPid;
+    if (proc.currentPid() != parent) return error.ProcessSpawnResumeWrongCurrent;
+    if (proc.runState(parent) != .running) return error.ProcessSpawnResumeParentNotRunning;
+    if (proc.runState(child) != .exited) return error.ProcessSpawnResumeChildNotExited;
+    if (mm.paging.activeAddressSpace().pml4 != parent_space.pml4) return error.ProcessSpawnResumeWrongAddressSpace;
+    if (arch.gdt.kernelStackTop() != parent_stack_top) return error.ProcessSpawnResumeWrongKernelStack;
+
+    proc.finishSpawnResume(parent, child);
+    var status: i32 = 0;
+    const waited = syscall.dispatch.invoke(syscall.numbers.wait4, child, @intFromPtr(&status), 0, 0, 0, 0);
+    if (waited != child) return error.ProcessSpawnResumeWaitFailed;
+    if (status != 23 << 8) return error.ProcessSpawnResumeStatusWrong;
+    child_reaped = true;
 }
 
 fn spawnChildImage() testing.TestError!void {

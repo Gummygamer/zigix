@@ -122,6 +122,7 @@ pub fn build(b: *std.Build) void {
         .strip = false,
         .omit_frame_pointer = false,
         .imports = &.{
+            .{ .name = "arch", .module = arch_module },
             .{ .name = "mm", .module = mm_module },
         },
     });

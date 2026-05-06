@@ -23,7 +23,7 @@ rejected.
 | 7     | ELF64 static loader                  | done         | `[ZIGIX:ELF:OK]` |
 | 8     | User mode + init                     | done         | `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 9     | File descriptors and basic Unix I/O  | done         | `[ZIGIX:TEST:PASS:syscall_fd_table]`, `[ZIGIX:TEST:PASS:syscall_pipe]` |
-| 10    | `exec` and process lifecycle         | in progress  | `[ZIGIX:TEST:PASS:process_lifecycle]`, `[ZIGIX:TEST:PASS:process_address_space]`, `[ZIGIX:TEST:PASS:process_page_tables]`, `[ZIGIX:TEST:PASS:process_scheduler_groundwork]`, `[ZIGIX:TEST:PASS:spawn_child_image]`, `[ZIGIX:TEST:PASS:posix_spawn_handoff]`, `[ZIGIX:TEST:PASS:execve_load]`, `[ZIGIX:TEST:PASS:execve_argv_stack]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
+| 10    | `exec` and process lifecycle         | in progress  | `[ZIGIX:TEST:PASS:process_lifecycle]`, `[ZIGIX:TEST:PASS:process_wait_nohang]`, `[ZIGIX:TEST:PASS:process_wait_blocking]`, `[ZIGIX:TEST:PASS:process_address_space]`, `[ZIGIX:TEST:PASS:process_page_tables]`, `[ZIGIX:TEST:PASS:process_scheduler_groundwork]`, `[ZIGIX:TEST:PASS:process_spawn_resume]`, `[ZIGIX:TEST:PASS:spawn_child_image]`, `[ZIGIX:TEST:PASS:posix_spawn_handoff]`, `[ZIGIX:TEST:PASS:execve_load]`, `[ZIGIX:TEST:PASS:execve_argv_stack]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 11–15 | Userspace expansion                  | pending      | per-phase markers TBD |
 
 ## Phase 0 — Toolchain and smoke-test skeleton ✅
@@ -215,9 +215,9 @@ userspace phases.
 - [x] Shared userspace syscall wrappers for the Phase 10 smoke binaries,
   including `_exit` via the Linux `exit_group` number and `waitpid` as a
   wrapper over `wait4(pid, status, options, NULL)`.
-- [x] `wait4` now distinguishes no child from a live child, supports
-  `WNOHANG`, and returns `EAGAIN` for waits that would block until the
-  scheduler can park and wake processes.
+- [x] Initial `wait4` semantics distinguished no child from a live child,
+  supported `WNOHANG`, and returned `EAGAIN` for waits that would block before
+  the blocking spawned-child wait path landed.
 - [x] Per-process address-space ownership: each process tracks the user
   regions it owns (PT_LOAD segments + stack) in its process-table entry.
   `execve` drains the current process's region list and unmaps each contained
@@ -242,21 +242,36 @@ userspace phases.
   parent. This removes the previous single-active-address-space blocker for a
   narrow spawn handoff; runnable concurrent processes still need scheduler
   context switching and kernel stack ownership.
-- [x] Narrow `posix_spawn` handoff: a Zigix extension syscall creates a child
+- [x] Narrow `posix_spawn` handoff prototype: a Zigix extension syscall creates a child
   PID, loads a static image and initial stack into the child's page-table root,
-  switches the current process to that child, and enters ring 3. This is a
-  one-way handoff until scheduling can resume the parent; the `/init` smoke path
-  now uses it to run `/exec-ok`, which emits `[ZIGIX:INIT:OK]`.
+  switches the current process to that child, and enters ring 3. This proved
+  the one-way handoff before parent resumption and blocking wait support
+  landed.
 - [x] Scheduler groundwork: process entries now distinguish `runnable`,
   `running`, `blocked`, and `exited`, spawned children own a kernel stack, and
   `switchTo` moves CR3 while making the previous current process runnable
   again. The `process_scheduler_groundwork` test locks down the parent
   resumption state model that the next `posix_spawn` slice will use.
+- [x] Minimal spawn resume path: the spawn path saved the parent's kernel
+  continuation, switches the TSS kernel stack and CR3 to the child, runs the
+  child image, and resumes the parent when the child exits so the syscall can
+  return the child PID. This was still cooperative and child-completion driven:
+  the parent resumes after the spawned child exits, then reaps it with `wait4`.
+  `process_spawn_resume` covers the process-table/TSS state transition, and
+  the userspace smoke path now waits for `/exec-ok` before `/init` exits.
+- [x] Blocking `wait4` for spawned children: `posix_spawn` now prepares a
+  runnable child and returns its PID before the child runs. A blocking
+  `wait4`/`waitpid` saves the parent's kernel continuation, parks it, switches
+  to the child's page-table root and TSS stack, enters the child image, then
+  wakes and resumes the parent when the child exits so `wait4` can reap it.
+  `WNOHANG` still returns `0` for live children. The
+  `process_wait_blocking` test and `/init` smoke path cover the handoff.
 - [ ] `fork` is deferred. Unix fork semantics are still misleading without
   copy-on-write and a scheduler that can run separate address spaces; prefer
   `posix_spawn` as the next process-creation slice.
-- [ ] Real blocking `waitpid`/`wait4` once scheduling can park and wake
-  processes.
+- [ ] General scheduler run queues. Blocking `wait4` can run the spawned child
+  it is waiting for, but the kernel still lacks a scheduler that can choose
+  among independent runnable processes.
 
 ## Phase 11 — Tiny shell
 
@@ -302,11 +317,11 @@ The next thing to do, concretely:
 1. Source `.env`, then run `ci/local.sh` to confirm the Phase 10 smoke
    still passes.
 2. Read the Phase 10 notes above.
-3. Continue Phase 10 from the scheduler groundwork. The next concrete process
-   slice is a minimal scheduler entry path that can save the parent's kernel
-   continuation, run the child, then resume the parent so `posix_spawn` can
-   return the child PID instead of being a one-way handoff.
-4. Add blocking pipe semantics after the scheduler/process lifecycle work gives
+3. Continue Phase 10 from blocking spawned-child `wait4`. The next concrete
+   process slice is blocking pipe semantics: empty reads and full writes should
+   park the caller and wake on the opposite endpoint once the process lifecycle
+   wait path has proven the basic park/wake model.
+4. Add general scheduler run queues after the first blocking pipe path gives
    the kernel something to block and wake.
 5. Decide how writable files should fit the current read-only initramfs/memfs
    model before expanding inode write support.

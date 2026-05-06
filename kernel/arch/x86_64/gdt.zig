@@ -31,13 +31,25 @@ var table: [7]u64 align(8) = .{
 var pointer: [10]u8 align(1) = [_]u8{0} ** 10;
 
 pub fn init() void {
-    writeLe64(4, @intFromPtr(&stack_top));
+    setKernelStackTop(@intFromPtr(&stack_top));
     writeLe16(102, TSS_SIZE);
     installTssDescriptor();
 
     writeDescriptorPointer(&pointer, @sizeOf(@TypeOf(table)) - 1, @intFromPtr(&table));
     zigix_lgdt_reload(&pointer);
     zigix_ltr(TSS_SELECTOR);
+}
+
+pub fn defaultKernelStackTop() usize {
+    return @intFromPtr(&stack_top);
+}
+
+pub fn setKernelStackTop(top: usize) void {
+    writeLe64(4, top);
+}
+
+pub fn kernelStackTop() usize {
+    return readLe64(4);
 }
 
 fn installTssDescriptor() void {
@@ -65,6 +77,16 @@ fn writeLe64(offset: usize, value: u64) void {
         const shift: u6 = @intCast(i * 8);
         tss[offset + i] = @intCast((value >> shift) & 0xff);
     }
+}
+
+fn readLe64(offset: usize) u64 {
+    var value: u64 = 0;
+    var i: usize = 0;
+    while (i < 8) : (i += 1) {
+        const shift: u6 = @intCast(i * 8);
+        value |= @as(u64, tss[offset + i]) << shift;
+    }
+    return value;
 }
 
 fn writeDescriptorPointer(dest: *[10]u8, limit: u16, base: u64) void {

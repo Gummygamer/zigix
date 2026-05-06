@@ -17,10 +17,10 @@ Update this file whenever syscall or POSIX semantics change.
 | `dup`    | partial | lowest free fd; clears close-on-exec       | `syscall_fd_table`, `syscall_pipe` |
 | `_exit`  | partial | userspace wrapper; `exit_group` aliases raw `exit` for now | userspace init smoke |
 | `exit`   | partial | raw syscall exits QEMU through debug port  | userspace init smoke |
-| `waitpid` | partial | userspace wrapper over `wait4`; blocking deferred | `process_lifecycle`, `process_wait_nohang` |
-| `wait4`  | partial | reaps exited children; `WNOHANG`; blocking waits return `EAGAIN` for now | `process_lifecycle`, `process_wait_nohang` |
+| `waitpid` | partial | userspace wrapper over `wait4`; blocks for spawned children | `process_lifecycle`, `process_wait_nohang`, `process_wait_blocking` |
+| `wait4`  | partial | reaps exited children; `WNOHANG`; blocking wait runs spawned child | `process_lifecycle`, `process_wait_nohang`, `process_wait_blocking` |
 | `execve` | partial | static ELF path; bounded `argv`/`envp`; auxv deferred | `execve_load`, `execve_argv_stack` |
-| `posix_spawn` | partial | Zigix one-way handoff only; no pid-out, file actions, attributes, or parent resumption yet | `spawn_child_image`, `posix_spawn_handoff` |
+| `posix_spawn` | partial | Zigix extension returns child PID; no pid-out, file actions, attributes, or independent scheduling yet | `spawn_child_image`, `posix_spawn_handoff`, `process_wait_blocking` |
 | `fork`   | missing | deferred; prefer `posix_spawn` until per-process address spaces exist | none  |
 | `mmap`   | missing | planned for Phase 13+                      | none  |
 | signals  | missing | planned for Phase 13+                      | none  |

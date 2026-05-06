@@ -1,5 +1,6 @@
 //! Minimal process table for Phase 10 lifecycle work.
 
+const arch = @import("arch");
 const mm = @import("mm");
 
 pub const MAX_PROCESSES: usize = 16;
@@ -37,9 +38,11 @@ pub const RunState = enum {
 const KernelStack = struct {
     base: usize = 0,
     page_count: usize = 0,
+    top_override: usize = 0,
     owned: bool = false,
 
     fn top(self: KernelStack) usize {
+        if (self.top_override != 0) return self.top_override;
         return self.base + self.page_count * mm.physical.PAGE_SIZE;
     }
 };
@@ -51,8 +54,22 @@ const Process = struct {
     exit_status: u8 = 0,
     address_space: mm.paging.AddressSpace = .{ .pml4 = 0 },
     kernel_stack: KernelStack = .{},
+    user_entry: usize = 0,
+    user_stack_top: usize = 0,
+    resume_context: arch.user.KernelContext = .{},
+    resume_child: ?Pid = null,
     regions: [MAX_PROCESS_REGIONS]Region = [_]Region{.{ .virtual_start = 0, .page_count = 0 }} ** MAX_PROCESS_REGIONS,
     region_count: usize = 0,
+};
+
+pub const SpawnResume = struct {
+    context: *arch.user.KernelContext,
+    return_value: usize,
+};
+
+pub const UserImage = struct {
+    entry: usize,
+    stack_top: usize,
 };
 
 var table: [MAX_PROCESSES]Process = [_]Process{.{}} ** MAX_PROCESSES;
@@ -68,9 +85,13 @@ pub fn init() void {
         .pid = init_pid,
         .parent = null,
         .address_space = mm.paging.activeAddressSpace(),
-        .kernel_stack = .{ .owned = false },
+        .kernel_stack = .{
+            .top_override = arch.gdt.defaultKernelStackTop(),
+            .owned = false,
+        },
     };
     current_pid = init_pid;
+    arch.gdt.setKernelStackTop(table[0].kernel_stack.top());
 }
 
 pub fn currentPid() Pid {
@@ -97,6 +118,7 @@ pub fn switchTo(pid: Pid) Error!void {
     next.state = .running;
     current_pid = pid;
     mm.paging.switchAddressSpace(next.address_space);
+    arch.gdt.setKernelStackTop(next.kernel_stack.top());
 }
 
 pub fn addressSpace(pid: Pid) ?mm.paging.AddressSpace {
@@ -111,8 +133,77 @@ pub fn runState(pid: Pid) ?RunState {
 
 pub fn kernelStackTop(pid: Pid) ?usize {
     const proc = find(pid) orelse return null;
-    if (proc.kernel_stack.page_count == 0) return null;
+    if (proc.kernel_stack.page_count == 0 and proc.kernel_stack.top_override == 0) return null;
     return proc.kernel_stack.top();
+}
+
+pub fn setUserImage(pid: Pid, entry: usize, stack_top: usize) Error!void {
+    if (entry == 0 or stack_top == 0) return error.InvalidArgument;
+    const proc = find(pid) orelse return error.NoProcess;
+    proc.user_entry = entry;
+    proc.user_stack_top = stack_top;
+}
+
+pub fn userImage(pid: Pid) ?UserImage {
+    const proc = find(pid) orelse return null;
+    if (proc.user_entry == 0 or proc.user_stack_top == 0) return null;
+    return .{
+        .entry = proc.user_entry,
+        .stack_top = proc.user_stack_top,
+    };
+}
+
+pub fn beginSpawnResume(parent: Pid, child: Pid) Error!*arch.user.KernelContext {
+    return beginBlockingWait(parent, child);
+}
+
+pub fn beginBlockingWait(parent: Pid, child: Pid) Error!*arch.user.KernelContext {
+    const parent_proc = find(parent) orelse return error.NoProcess;
+    const child_proc = find(child) orelse return error.NoProcess;
+    if (child_proc.parent != parent) return error.InvalidArgument;
+    if (parent_proc.resume_child != null) return error.WouldBlock;
+
+    parent_proc.resume_context = .{};
+    parent_proc.resume_child = child;
+    switch (parent_proc.state) {
+        .running, .runnable => parent_proc.state = .blocked,
+        .blocked => {},
+        .free, .exited => return error.NoProcess,
+    }
+    return &parent_proc.resume_context;
+}
+
+pub fn finishSpawnResume(parent: Pid, child: Pid) void {
+    const parent_proc = find(parent) orelse return;
+    if (parent_proc.resume_child != child) return;
+    parent_proc.resume_child = null;
+    parent_proc.resume_context = .{};
+    if (parent_proc.state == .blocked) {
+        parent_proc.state = if (current_pid == parent) .running else .runnable;
+    }
+}
+
+pub fn exitCurrent(status: u64) ?SpawnResume {
+    const child = find(current_pid) orelse return null;
+    if (child.state == .free) return null;
+
+    child.state = .exited;
+    child.exit_status = @truncate(status);
+
+    const parent_pid = child.parent orelse return null;
+    const parent = find(parent_pid) orelse return null;
+    if (parent.resume_child != child.pid) return null;
+    if (parent.state != .blocked and parent.state != .runnable and parent.state != .running) return null;
+
+    parent.state = .running;
+    current_pid = parent.pid;
+    mm.paging.switchAddressSpace(parent.address_space);
+    arch.gdt.setKernelStackTop(parent.kernel_stack.top());
+
+    return .{
+        .context = &parent.resume_context,
+        .return_value = child.pid,
+    };
 }
 
 pub fn block(pid: Pid) Error!void {
@@ -199,6 +290,7 @@ pub fn markExited(pid: Pid, status: u64) bool {
     if (proc.state == .free) return false;
     proc.state = .exited;
     proc.exit_status = @truncate(status);
+    wakeWaitingParent(proc);
     return true;
 }
 
@@ -225,6 +317,24 @@ fn releaseProcessResources(proc: *Process) void {
         mm.paging.destroyUserAddressSpace(proc.address_space);
     }
     releaseKernelStack(proc.kernel_stack);
+}
+
+pub fn liveChildForWait(parent: Pid, requested_pid: i64) ?Pid {
+    if (requested_pid < -1 or requested_pid == 0) return null;
+    for (&table) |*proc| {
+        if (proc.state == .free or proc.state == .exited) continue;
+        if (proc.parent != parent) continue;
+        if (requested_pid > 0 and proc.pid != @as(Pid, @intCast(requested_pid))) continue;
+        return proc.pid;
+    }
+    return null;
+}
+
+fn wakeWaitingParent(child: *Process) void {
+    const parent_pid = child.parent orelse return;
+    const parent = find(parent_pid) orelse return;
+    if (parent.resume_child != child.pid) return;
+    if (parent.state == .blocked) parent.state = .runnable;
 }
 
 fn findExitedChild(parent: Pid, requested_pid: i64) ?*Process {

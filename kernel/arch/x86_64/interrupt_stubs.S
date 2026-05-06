@@ -50,6 +50,42 @@ zigix_enter_user:
     iretq
 .size zigix_enter_user, . - zigix_enter_user
 
+.global zigix_enter_user_with_context
+.type zigix_enter_user_with_context, @function
+zigix_enter_user_with_context:
+    movq    %rsp, 0(%rdi)
+    movq    %rbx, 8(%rdi)
+    movq    %rbp, 16(%rdi)
+    movq    %r12, 24(%rdi)
+    movq    %r13, 32(%rdi)
+    movq    %r14, 40(%rdi)
+    movq    %r15, 48(%rdi)
+    movw    $0x23, %ax
+    movw    %ax, %ds
+    movw    %ax, %es
+    pushq   $0x23
+    pushq   %rdx
+    pushfq
+    orq     $0x200, (%rsp)
+    pushq   $0x1b
+    pushq   %rsi
+    iretq
+.size zigix_enter_user_with_context, . - zigix_enter_user_with_context
+
+.global zigix_resume_kernel_context
+.type zigix_resume_kernel_context, @function
+zigix_resume_kernel_context:
+    movq    8(%rdi), %rbx
+    movq    16(%rdi), %rbp
+    movq    24(%rdi), %r12
+    movq    32(%rdi), %r13
+    movq    40(%rdi), %r14
+    movq    48(%rdi), %r15
+    movq    0(%rdi), %rsp
+    movq    %rsi, %rax
+    retq
+.size zigix_resume_kernel_context, . - zigix_resume_kernel_context
+
 .macro SAVE_GPRS
     pushq   %rax
     pushq   %rbx

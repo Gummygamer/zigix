@@ -417,22 +417,53 @@ fn sysExecve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) i64 {
 
 fn sysPosixSpawn(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) i64 {
     const image = preparePosixSpawn(path_ptr, argv_ptr, envp_ptr) catch |err| return mapSpawnError(err);
-
-    current_process.closeOnExec();
-    proc.switchTo(image.pid) catch |err| {
-        cleanupPreparedSpawn(image.pid);
-        return errno.fail(switch (err) {
-            error.NoProcess => errno.SRCH,
-            else => errno.INVAL,
-        });
-    };
-    arch.user.enter(image.entry, image.stack_top);
+    return @intCast(image.pid);
 }
 
 fn sysWait4(pid_arg: u64, status_ptr: u64, options: u64, rusage_ptr: u64) i64 {
     if (rusage_ptr != 0) return errno.fail(errno.INVAL);
     const requested_pid: i64 = @bitCast(pid_arg);
     const status_out = if (status_ptr == 0) null else userInt(status_ptr) orelse return errno.fail(errno.FAULT);
+    const caller = proc.currentPid();
+    const waited = proc.wait4(caller, requested_pid, status_out, options) catch |err| {
+        if (err == error.WouldBlock) {
+            return runChildForBlockingWait(caller, requested_pid, status_out, options);
+        }
+        return errno.fail(switch (err) {
+            error.InvalidArgument => errno.INVAL,
+            error.NoChild => errno.CHILD,
+            error.WouldBlock => errno.AGAIN,
+            error.NoProcess => errno.SRCH,
+            error.OutOfMemory, error.RegionTableFull, error.TableFull => errno.NFILE,
+            error.Unsupported => errno.INVAL,
+        });
+    };
+    return @intCast(waited);
+}
+
+fn runChildForBlockingWait(caller: proc.Pid, requested_pid: i64, status_out: ?*i32, options: u64) i64 {
+    const child = proc.liveChildForWait(caller, requested_pid) orelse return errno.fail(errno.CHILD);
+    const image = proc.userImage(child) orelse return errno.fail(errno.AGAIN);
+    const resume_context = proc.beginBlockingWait(caller, child) catch |err| {
+        return errno.fail(switch (err) {
+            error.WouldBlock => errno.AGAIN,
+            error.NoProcess => errno.SRCH,
+            else => errno.INVAL,
+        });
+    };
+
+    proc.switchTo(child) catch |err| {
+        proc.finishSpawnResume(caller, child);
+        return errno.fail(switch (err) {
+            error.NoProcess => errno.SRCH,
+            else => errno.INVAL,
+        });
+    };
+
+    current_process.closeOnExec();
+    const resumed_pid = arch.user.enterWithContext(resume_context, image.entry, image.stack_top);
+    proc.finishSpawnResume(proc.currentPid(), @intCast(resumed_pid));
+
     const waited = proc.wait4(proc.currentPid(), requested_pid, status_out, options) catch |err| {
         return errno.fail(switch (err) {
             error.InvalidArgument => errno.INVAL,
@@ -447,6 +478,9 @@ fn sysWait4(pid_arg: u64, status_ptr: u64, options: u64, rusage_ptr: u64) i64 {
 }
 
 fn sysExit(status: u64) noreturn {
+    if (proc.exitCurrent(status)) |handoff| {
+        arch.user.resumeKernelContext(handoff.context, handoff.return_value);
+    }
     _ = proc.markExited(proc.currentPid(), status);
     arch.interrupts.disable();
     cpu.outb(0xF4, 0x10);
@@ -574,6 +608,7 @@ fn preparePosixSpawn(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) !PreparedSpawn
         .argv = args.argv(&argv_slices),
         .envp = args.envp(&envp_slices),
     });
+    try proc.setUserImage(child, image.entry, image.stack_top);
 
     return .{
         .pid = child,

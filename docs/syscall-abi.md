@@ -151,13 +151,14 @@ Errors: `E2BIG`, `EFAULT`, `EINVAL`, `ENOENT`, `ENOEXEC`, VFS-mapped errors.
 Zigix exposes a temporary extension syscall for the Phase 10 spawn handoff. It
 creates a child PID, loads a static ELF64 executable from an absolute VFS path
 into the child's page-table root, builds the same bounded `argv`/`envp` stack
-shape as `execve`, switches the current process to that child, and enters ring
-3. On success this syscall does not return to the caller yet.
+shape as `execve`, records the child's initial entry/stack in the process
+table, and returns the child PID. The child runs when the parent performs a
+blocking `wait4`/`waitpid` for it.
 
 This is intentionally narrower than POSIX `posix_spawn`: there is no pid-out
-argument, file actions, spawn attributes, or parent resumption until the
-scheduler can park and resume independent processes. Descriptors marked
-`O_CLOEXEC` are closed during the one-way handoff.
+argument, file actions, spawn attributes, or independent parent/child
+scheduling yet. Descriptors marked `O_CLOEXEC` are closed before entering the
+child image from blocking `wait4`.
 
 Errors: `E2BIG`, `EFAULT`, `EINVAL`, `ENOENT`, `ENOEXEC`, `ENFILE`,
 VFS-mapped errors.
@@ -170,19 +171,24 @@ word uses the normal Unix exited-process layout: low eight bits of the exit
 code shifted left by eight.
 
 If a matching child exists but has not exited, `WNOHANG` returns `0` and leaves
-the status word untouched. A blocking wait that would need to park the caller
-returns `EAGAIN` until scheduler wakeups exist.
+the status word untouched. A blocking wait for a spawned child saves the
+parent's kernel continuation, parks the parent, switches to the child's address
+space and kernel stack, enters the child image, and resumes the parent when the
+child exits so the syscall can reap it and return the child PID.
 
-Errors: `EAGAIN`, `ECHILD`, `EINVAL`, `EFAULT`.
+Errors: `EAGAIN` for internal live children without an executable image,
+`ECHILD`, `EINVAL`, `EFAULT`.
 
 The shared Zig userspace syscall module also exposes `waitpid(pid, status,
 options)` as a wrapper over `wait4(pid, status, options, NULL)`.
 
 ### `exit` / `exit_group`
 
-Both numbers currently terminate the only running user process and end the QEMU
-smoke run through the debug-exit port. `exit_group` exists as a compatibility
-alias for libc-style `_exit` wrappers before real thread groups exist.
+Both numbers mark the current process exited. If the process is the active
+blocking-wait child, exit resumes the saved parent continuation; otherwise the
+kernel ends the QEMU smoke run through the debug-exit port. `exit_group` exists
+as a compatibility alias for libc-style `_exit` wrappers before real thread
+groups exist.
 
 ### `stat` / `fstat`
 
@@ -229,8 +235,9 @@ and `EPIPE` after all read endpoints close.
 
 The first Phase 10 lifecycle slice adds `process_lifecycle`, covering PID
 allocation, child exit state, `wait4` status reporting, and one-shot reaping.
-`process_wait_nohang` covers live-child waits, `WNOHANG`, and the temporary
-`EAGAIN` behavior for waits that would block.
+`process_wait_nohang` covers live-child waits and `WNOHANG`.
+`process_wait_blocking` covers parking the parent, entering a spawned child,
+resuming on child exit, status reporting, and reaping.
 
 The exec slice adds `execve_load`, covering side-effect-free validation of the
 initramfs `/exec-ok` ELF image through the exec loader path and close-on-exec
@@ -238,10 +245,12 @@ descriptor cleanup. `execve_argv_stack` covers bounded argv/envp copy-in and
 the initial stack shape. `spawn_child_image` covers the in-kernel preparation
 path for future `posix_spawn`: loading `/exec-ok` for a child PID while keeping
 the parent's region registry unchanged, then releasing the child's regions.
-`posix_spawn_handoff` covers the syscall preparation path, child page-table
-ownership, and the current one-way handoff limitations. The QEMU init path also
-exercises the successful user-mode transition with non-null argv/envp: `/init`
-emits `[ZIGIX:INIT:START]`, spawns `/exec-ok`, and the child image emits
-`[ZIGIX:INIT:OK]`. The same userspace smoke binaries compile against
+`posix_spawn_handoff` covers the syscall preparation path and child page-table
+ownership. `process_spawn_resume` covers the saved parent continuation model
+that lets child exit resume the parent-side syscall frame. The QEMU init path
+also exercises the successful user-mode transition with non-null argv/envp:
+`/init` emits `[ZIGIX:INIT:START]`, spawns `/exec-ok`, waits for the returned
+PID, and the child image emits `[ZIGIX:INIT:OK]`. The same userspace smoke
+binaries compile against
 `userspace/lib/sys.zig`, which provides the current `_exit`, `waitpid`, and
 `posixSpawn` compatibility wrappers.
