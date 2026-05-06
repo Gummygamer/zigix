@@ -61,16 +61,16 @@ pub fn allocPage() Error!usize {
 
     for (page_bitmap[0..], 0..) |byte, byte_index| {
         if (byte == 0xff) continue;
-        var bit: u3 = 0;
-        while (true) : (bit += 1) {
-            const mask: u8 = @as(u8, 1) << bit;
+        var bit: usize = 0;
+        while (bit < 8) : (bit += 1) {
+            const bit_index: u3 = @intCast(bit);
+            const mask: u8 = @as(u8, 1) << bit_index;
             if ((byte & mask) == 0) {
                 const frame = byte_index * 8 + bit;
                 setUsed(frame);
                 stats.tracked_free_pages -= 1;
                 return frame * PAGE_SIZE;
             }
-            if (bit == 7) break;
         }
     }
 

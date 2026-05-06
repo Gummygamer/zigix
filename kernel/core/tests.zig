@@ -11,6 +11,8 @@ const proc = @import("proc");
 const syscall = @import("syscall");
 const testing = @import("testing.zig");
 
+var exec_stack_test_buffer: [512]u8 = [_]u8{0} ** 512;
+
 pub const TEST_kernel_smoke = testing.Test{
     .name = "kernel_smoke",
     .run = kernelSmoke,
@@ -59,6 +61,11 @@ pub const TEST_process_lifecycle = testing.Test{
 pub const TEST_execve_load = testing.Test{
     .name = "execve_load",
     .run = execveLoad,
+};
+
+pub const TEST_execve_argv_stack = testing.Test{
+    .name = "execve_argv_stack",
+    .run = execveArgvStack,
 };
 
 pub const TEST_elf_static_loader = testing.Test{
@@ -329,11 +336,65 @@ fn execveLoad() testing.TestError!void {
         return error.ExecveCloseFailed;
     }
 
-    if (syscall.dispatch.invoke(syscall.numbers.execve, @intFromPtr(path.ptr), 1, 0, 0, 0, 0) != -syscall.errno.INVAL) {
-        return error.ExecveAcceptedArgv;
+    var too_many: [9]u64 = undefined;
+    const arg = "arg\x00";
+    for (&too_many) |*slot| slot.* = @intFromPtr(arg.ptr);
+    if (syscall.dispatch.execArgsForTest(@intFromPtr(&too_many), 0)) |_| {
+        return error.ExecveAcceptedTooManyArgs;
+    } else |err| {
+        if (err != error.TooMany) return error.ExecveWrongArgError;
     }
+}
+
+fn execveArgvStack() testing.TestError!void {
+    const arg0 = "/exec-ok\x00";
+    const arg1 = "argv-ok\x00";
+    const env0 = "ZIGIX_PHASE=10\x00";
+    const argv = [_]u64{ @intFromPtr(arg0.ptr), @intFromPtr(arg1.ptr), 0 };
+    const envp = [_]u64{ @intFromPtr(env0.ptr), 0 };
+
+    const args = try syscall.dispatch.execArgsForTest(@intFromPtr(&argv), @intFromPtr(&envp));
+    var argv_slices: [8][]const u8 = undefined;
+    var envp_slices: [8][]const u8 = undefined;
+    @memset(exec_stack_test_buffer[0..], 0);
+    const base: usize = 0x1000;
+    const sp = try elf.loader.buildInitialStackForTest(&exec_stack_test_buffer, base, .{
+        .argv = args.argv(&argv_slices),
+        .envp = args.envp(&envp_slices),
+    });
+    if (sp < base or sp >= base + exec_stack_test_buffer.len) return error.ExecveStackPointerOutOfRange;
+
+    const offset = sp - base;
+    if (readStackWord(&exec_stack_test_buffer, offset + 0 * @sizeOf(usize)) != 2) return error.ExecveArgcWrong;
+    const argv0_ptr = readStackWord(&exec_stack_test_buffer, offset + 1 * @sizeOf(usize));
+    const argv1_ptr = readStackWord(&exec_stack_test_buffer, offset + 2 * @sizeOf(usize));
+    if (readStackWord(&exec_stack_test_buffer, offset + 3 * @sizeOf(usize)) != 0) return error.ExecveArgvMissingNull;
+    const env0_ptr = readStackWord(&exec_stack_test_buffer, offset + 4 * @sizeOf(usize));
+    if (readStackWord(&exec_stack_test_buffer, offset + 5 * @sizeOf(usize)) != 0) return error.ExecveEnvpMissingNull;
+
+    if (!stackCStringEquals(&exec_stack_test_buffer, base, argv0_ptr, "/exec-ok")) return error.ExecveArgv0Wrong;
+    if (!stackCStringEquals(&exec_stack_test_buffer, base, argv1_ptr, "argv-ok")) return error.ExecveArgv1Wrong;
+    if (!stackCStringEquals(&exec_stack_test_buffer, base, env0_ptr, "ZIGIX_PHASE=10")) return error.ExecveEnv0Wrong;
 }
 
 fn elfStaticLoader() testing.TestError!void {
     if (!elf.selfTestStaticLoaderMarker()) return error.ElfStaticLoaderFailed;
+}
+
+fn readStackWord(stack: []const u8, offset: usize) usize {
+    var value: usize = 0;
+    var index: usize = 0;
+    while (index < @sizeOf(usize)) : (index += 1) {
+        const shift: std.math.Log2Int(usize) = @intCast(index * 8);
+        value |= @as(usize, stack[offset + index]) << shift;
+    }
+    return value;
+}
+
+fn stackCStringEquals(stack: []const u8, base: usize, ptr: usize, expected: []const u8) bool {
+    if (ptr < base) return false;
+    const offset = ptr - base;
+    if (offset + expected.len >= stack.len) return false;
+    if (!std.mem.eql(u8, stack[offset .. offset + expected.len], expected)) return false;
+    return stack[offset + expected.len] == 0;
 }

@@ -17,6 +17,9 @@ const MAX_FDS: usize = 16;
 const MAX_OPEN_FILES: usize = 16;
 const MAX_PIPES: usize = 8;
 const MAX_PATH_BYTES: usize = 256;
+const MAX_EXEC_ARGS: usize = 8;
+const MAX_EXEC_ENVS: usize = 8;
+const MAX_EXEC_STRING_BYTES: usize = 256;
 const PIPE_BUFFER_SIZE: usize = 4096;
 
 pub const O_CLOEXEC: u64 = 0o2000000;
@@ -91,6 +94,44 @@ const Descriptor = struct {
     close_on_exec: bool = false,
 };
 
+pub const ExecCopyError = error{
+    Fault,
+    TooLong,
+    TooMany,
+};
+
+const ExecString = struct {
+    buffer: [MAX_EXEC_STRING_BYTES]u8 = [_]u8{0} ** MAX_EXEC_STRING_BYTES,
+    len: usize = 0,
+
+    fn slice(self: *const ExecString) []const u8 {
+        return self.buffer[0..self.len];
+    }
+};
+
+pub const ExecArgs = struct {
+    argv_storage: [MAX_EXEC_ARGS]ExecString = [_]ExecString{.{}} ** MAX_EXEC_ARGS,
+    envp_storage: [MAX_EXEC_ENVS]ExecString = [_]ExecString{.{}} ** MAX_EXEC_ENVS,
+    argc: usize = 0,
+    envc: usize = 0,
+
+    pub fn argv(self: *const ExecArgs, out: *[MAX_EXEC_ARGS][]const u8) []const []const u8 {
+        var index: usize = 0;
+        while (index < self.argc) : (index += 1) {
+            out[index] = self.argv_storage[index].slice();
+        }
+        return out[0..self.argc];
+    }
+
+    pub fn envp(self: *const ExecArgs, out: *[MAX_EXEC_ENVS][]const u8) []const []const u8 {
+        var index: usize = 0;
+        while (index < self.envc) : (index += 1) {
+            out[index] = self.envp_storage[index].slice();
+        }
+        return out[0..self.envc];
+    }
+};
+
 pub const Process = struct {
     fd_table: [MAX_FDS]?Descriptor = [_]?Descriptor{null} ** MAX_FDS,
 
@@ -150,6 +191,7 @@ pub const Process = struct {
 var open_files: [MAX_OPEN_FILES]OpenFile = [_]OpenFile{.{}} ** MAX_OPEN_FILES;
 var pipes: [MAX_PIPES]Pipe = [_]Pipe{.{}} ** MAX_PIPES;
 var current_process: Process = .{};
+var exec_args_scratch: ExecArgs = .{};
 
 pub fn init() void {
     for (&open_files) |*slot| slot.* = .{};
@@ -347,13 +389,20 @@ fn sysDup(fd_arg: u64) i64 {
 }
 
 fn sysExecve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) i64 {
-    if (argv_ptr != 0 or envp_ptr != 0) return errno.fail(errno.INVAL);
-
     const path = userCString(path_ptr) orelse return errno.fail(errno.FAULT);
+    const args = copyExecArgs(argv_ptr, envp_ptr) catch |err| return errno.fail(switch (err) {
+        error.Fault => errno.FAULT,
+        error.TooLong, error.TooMany => errno.BIG,
+    });
     const inode = fs.vfs.lookup(path) catch |err| return mapFsError(err);
 
     var segments: [8]elf.parse.Segment = undefined;
-    const image = elf.loader.replaceStaticUser(inode.data, &segments) catch |err| return mapExecError(err);
+    var argv_slices: [MAX_EXEC_ARGS][]const u8 = undefined;
+    var envp_slices: [MAX_EXEC_ENVS][]const u8 = undefined;
+    const image = elf.loader.replaceStaticUserWithStack(inode.data, &segments, .{
+        .argv = args.argv(&argv_slices),
+        .envp = args.envp(&envp_slices),
+    }) catch |err| return mapExecError(err);
 
     current_process.closeOnExec();
     arch.user.enter(image.entry, image.stack_top);
@@ -474,6 +523,10 @@ pub fn execvePlanForTest(path: []const u8) bool {
     return true;
 }
 
+pub fn execArgsForTest(argv_ptr: u64, envp_ptr: u64) ExecCopyError!*const ExecArgs {
+    return copyExecArgs(argv_ptr, envp_ptr);
+}
+
 fn fdIndex(fd: u64) ?usize {
     if (fd >= MAX_FDS) return null;
     return @intCast(fd);
@@ -506,6 +559,39 @@ fn userCString(ptr: u64) ?[]const u8 {
         if (raw[len] == 0) return raw[0..len];
     }
     return null;
+}
+
+fn copyExecArgs(argv_ptr: u64, envp_ptr: u64) ExecCopyError!*const ExecArgs {
+    exec_args_scratch = .{};
+    exec_args_scratch.argc = try copyExecVector(argv_ptr, MAX_EXEC_ARGS, &exec_args_scratch.argv_storage);
+    exec_args_scratch.envc = try copyExecVector(envp_ptr, MAX_EXEC_ENVS, &exec_args_scratch.envp_storage);
+    return &exec_args_scratch;
+}
+
+fn copyExecVector(ptr: u64, comptime max_items: usize, storage: *[max_items]ExecString) ExecCopyError!usize {
+    if (ptr == 0) return 0;
+
+    const raw: [*]const u64 = @ptrFromInt(ptr);
+    var count: usize = 0;
+    while (count < max_items) : (count += 1) {
+        const item_ptr = raw[count];
+        if (item_ptr == 0) return count;
+        storage[count] = try copyExecString(item_ptr);
+    }
+    return error.TooMany;
+}
+
+fn copyExecString(ptr: u64) ExecCopyError!ExecString {
+    if (ptr == 0) return error.Fault;
+
+    const raw: [*]const u8 = @ptrFromInt(ptr);
+    var out: ExecString = .{};
+    while (out.len < out.buffer.len) : (out.len += 1) {
+        const byte = raw[out.len];
+        if (byte == 0) return out;
+        out.buffer[out.len] = byte;
+    }
+    return error.TooLong;
 }
 
 fn userStat(ptr: u64) ?*Stat {
@@ -541,6 +627,7 @@ fn mapFsError(err: fs.vfs.Error) i64 {
 fn mapExecError(err: elf.loader.Error) i64 {
     return errno.fail(switch (err) {
         error.OutOfMemory => errno.NFILE,
+        error.UserStackOverflow => errno.BIG,
         error.NotAligned, error.AlreadyMapped, error.NotMapped, error.Unsupported => errno.INVAL,
         else => errno.NOEXEC,
     });

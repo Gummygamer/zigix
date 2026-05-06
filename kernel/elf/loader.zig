@@ -1,5 +1,7 @@
 //! Static ELF64 load-plan validation.
 
+const std = @import("std");
+
 const arch = @import("arch");
 const mm = @import("mm");
 const parse = @import("parse.zig");
@@ -12,6 +14,7 @@ pub const Error = parse.Error || error{
     AlreadyMapped,
     NotMapped,
     Unsupported,
+    UserStackOverflow,
 };
 
 const SMOKE_ENTRY: u64 = 0x0040_0080;
@@ -22,6 +25,7 @@ const USER_IMAGE_BASE: usize = 0x4000_0000;
 const USER_IMAGE_LIMIT: usize = 0x6000_0000;
 const USER_STACK_BASE: usize = 0x7000_0000;
 const USER_STACK_SIZE: usize = PAGE_SIZE;
+const MAX_STACK_VECTOR_ITEMS: usize = 32;
 
 pub const LoadedImage = struct {
     entry: u64,
@@ -36,6 +40,11 @@ pub const UserImage = struct {
 pub const UserLoadPlan = struct {
     entry: usize,
     segments: []const parse.Segment,
+};
+
+pub const StackSpec = struct {
+    argv: []const []const u8 = &.{},
+    envp: []const []const u8 = &.{},
 };
 
 pub fn validateStatic(image: []const u8, segment_buffer: []parse.Segment) Error!LoadedImage {
@@ -60,17 +69,29 @@ pub fn planStaticUser(image: []const u8, segment_buffer: []parse.Segment) Error!
 
 pub fn loadStaticUser(image: []const u8, segment_buffer: []parse.Segment) Error!UserImage {
     const plan = try planStaticUser(image, segment_buffer);
-    return loadPlannedUser(image, plan);
+    return loadPlannedUser(image, plan, .{});
 }
 
 pub fn replaceStaticUser(image: []const u8, segment_buffer: []parse.Segment) Error!UserImage {
+    return replaceStaticUserWithStack(image, segment_buffer, .{});
+}
+
+pub fn replaceStaticUserWithStack(image: []const u8, segment_buffer: []parse.Segment, stack: StackSpec) Error!UserImage {
+    try validateStackSpec(stack);
     const plan = try planStaticUser(image, segment_buffer);
     unmapUserRange(USER_IMAGE_BASE, USER_IMAGE_LIMIT);
     unmapUserRange(USER_STACK_BASE, USER_STACK_BASE + USER_STACK_SIZE);
-    return loadPlannedUser(image, plan);
+    return loadPlannedUser(image, plan, stack);
 }
 
-fn loadPlannedUser(image: []const u8, plan: UserLoadPlan) Error!UserImage {
+pub fn buildInitialStackForTest(stack: []u8, stack_base: usize, spec: StackSpec) Error!usize {
+    try validateStackSpecForSize(spec, stack.len);
+    return buildInitialStack(stack, stack_base, spec);
+}
+
+fn loadPlannedUser(image: []const u8, plan: UserLoadPlan, stack_spec: StackSpec) Error!UserImage {
+    try validateStackSpec(stack_spec);
+
     for (plan.segments) |segment| {
         try mapSegment(segment);
         const file_bytes = try segment.fileBytes(image);
@@ -81,10 +102,12 @@ fn loadPlannedUser(image: []const u8, plan: UserLoadPlan) Error!UserImage {
     const stack_page = try mm.physical.allocPage();
     @memset(pageBytes(stack_page), 0);
     try mm.paging.mapUserPage(USER_STACK_BASE, stack_page, true);
+    const stack_bytes = userStackBytes();
+    const stack_top = try buildInitialStack(stack_bytes, USER_STACK_BASE, stack_spec);
 
     return .{
         .entry = plan.entry,
-        .stack_top = USER_STACK_BASE + USER_STACK_SIZE,
+        .stack_top = stack_top,
     };
 }
 
@@ -152,13 +175,90 @@ fn pageBytes(addr: usize) []u8 {
     return raw[0..PAGE_SIZE];
 }
 
+fn userStackBytes() []u8 {
+    const raw: [*]u8 = @ptrFromInt(USER_STACK_BASE);
+    return raw[0..USER_STACK_SIZE];
+}
+
+fn validateStackSpec(spec: StackSpec) Error!void {
+    try validateStackSpecForSize(spec, USER_STACK_SIZE);
+}
+
+fn validateStackSpecForSize(spec: StackSpec, stack_size: usize) Error!void {
+    if (spec.argv.len > MAX_STACK_VECTOR_ITEMS or spec.envp.len > MAX_STACK_VECTOR_ITEMS) {
+        return error.UserStackOverflow;
+    }
+    if (stackUsage(spec) > stack_size) return error.UserStackOverflow;
+}
+
+fn stackUsage(spec: StackSpec) usize {
+    var bytes: usize = 15;
+    for (spec.argv) |arg| bytes += arg.len + 1;
+    for (spec.envp) |env| bytes += env.len + 1;
+    bytes += (1 + spec.argv.len + 1 + spec.envp.len + 1) * @sizeOf(usize);
+    return bytes;
+}
+
+fn buildInitialStack(stack: []u8, stack_base: usize, spec: StackSpec) Error!usize {
+    var sp = stack.len;
+    var argv_ptrs: [MAX_STACK_VECTOR_ITEMS]usize = undefined;
+    var envp_ptrs: [MAX_STACK_VECTOR_ITEMS]usize = undefined;
+
+    for (spec.envp, 0..) |env, index| {
+        envp_ptrs[index] = try pushCString(stack, stack_base, &sp, env);
+    }
+    for (spec.argv, 0..) |arg, index| {
+        argv_ptrs[index] = try pushCString(stack, stack_base, &sp, arg);
+    }
+
+    sp = alignBackward(sp, 16);
+    try pushWord(stack, &sp, 0);
+    var env_index = spec.envp.len;
+    while (env_index > 0) {
+        env_index -= 1;
+        try pushWord(stack, &sp, envp_ptrs[env_index]);
+    }
+    try pushWord(stack, &sp, 0);
+    var arg_index = spec.argv.len;
+    while (arg_index > 0) {
+        arg_index -= 1;
+        try pushWord(stack, &sp, argv_ptrs[arg_index]);
+    }
+    try pushWord(stack, &sp, spec.argv.len);
+
+    return stack_base + sp;
+}
+
+fn pushCString(stack: []u8, stack_base: usize, sp: *usize, value: []const u8) Error!usize {
+    const needed = value.len + 1;
+    if (needed > sp.*) return error.UserStackOverflow;
+    sp.* -= needed;
+    @memcpy(stack[sp.* .. sp.* + value.len], value);
+    stack[sp.* + value.len] = 0;
+    return stack_base + sp.*;
+}
+
+fn pushWord(stack: []u8, sp: *usize, value: usize) Error!void {
+    if (sp.* < @sizeOf(usize)) return error.UserStackOverflow;
+    sp.* -= @sizeOf(usize);
+    writeUsize(stack[sp.* .. sp.* + @sizeOf(usize)], value);
+}
+
+fn writeUsize(bytes: []u8, value: usize) void {
+    var index: usize = 0;
+    while (index < @sizeOf(usize)) : (index += 1) {
+        const shift: std.math.Log2Int(usize) = @intCast(index * 8);
+        bytes[index] = @truncate(value >> shift);
+    }
+}
+
 fn checkedAdd(a: usize, b: usize) ?usize {
-    if (b > @import("std").math.maxInt(usize) - a) return null;
+    if (b > std.math.maxInt(usize) - a) return null;
     return a + b;
 }
 
 fn toUsize(value: u64) ?usize {
-    if (value > @import("std").math.maxInt(usize)) return null;
+    if (value > std.math.maxInt(usize)) return null;
     return @intCast(value);
 }
 

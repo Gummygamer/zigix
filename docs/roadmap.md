@@ -23,7 +23,7 @@ rejected.
 | 7     | ELF64 static loader                  | done         | `[ZIGIX:ELF:OK]` |
 | 8     | User mode + init                     | done         | `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 9     | File descriptors and basic Unix I/O  | done         | `[ZIGIX:TEST:PASS:syscall_fd_table]`, `[ZIGIX:TEST:PASS:syscall_pipe]` |
-| 10    | `exec` and process lifecycle         | in progress  | `[ZIGIX:TEST:PASS:process_lifecycle]`, `[ZIGIX:TEST:PASS:execve_load]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
+| 10    | `exec` and process lifecycle         | in progress  | `[ZIGIX:TEST:PASS:process_lifecycle]`, `[ZIGIX:TEST:PASS:execve_load]`, `[ZIGIX:TEST:PASS:execve_argv_stack]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 11–15 | Userspace expansion                  | pending      | per-phase markers TBD |
 
 ## Phase 0 — Toolchain and smoke-test skeleton ✅
@@ -203,10 +203,15 @@ userspace phases.
 - [x] `wait4` reaps exited children in the process table.
 - [x] Initial `execve(path, NULL, NULL)` syscall wiring around the static ELF
   loader, with close-on-exec descriptor handling. This is intentionally
-  partial: it replaces the current user image and stack pages, but argv/envp
-  stack construction and explicit process address-space ownership remain
-  future work. The QEMU smoke path now proves the success case by having
-  `/init` exec `/exec-ok`, which emits `[ZIGIX:INIT:OK]`.
+  partial: it replaces the current user image and stack pages, but explicit
+  process address-space ownership remains future work. The QEMU smoke path now
+  proves the success case by having `/init` exec `/exec-ok`, which emits
+  `[ZIGIX:INIT:OK]`.
+- [x] Bounded `execve` argv/envp copy-in and initial userspace stack
+  construction. Phase 10 caps each vector at eight strings and each string at
+  256 bytes until real copy-in validation and larger userspace workloads exist.
+  The `/init` smoke path now execs `/exec-ok` with non-null argv/envp, and the
+  kernel test `execve_argv_stack` validates the initial stack shape.
 - [x] Shared userspace syscall wrappers for the Phase 10 smoke binaries,
   including `_exit` via the Linux `exit_group` number and `waitpid` as a
   wrapper over `wait4(pid, status, options, NULL)`.
@@ -262,7 +267,8 @@ The next thing to do, concretely:
    still passes.
 2. Read the Phase 10 notes above.
 3. Continue Phase 10 by deciding whether `fork` or `posix_spawn` fits the
-   current paging design, then wire `execve` around the static ELF loader.
+   current paging design. The current single-address-space design still points
+   toward `posix_spawn` unless paging ownership changes first.
 4. Add blocking pipe semantics after the scheduler/process lifecycle work gives
    the kernel something to block and wake.
 5. Decide how writable files should fit the current read-only initramfs/memfs

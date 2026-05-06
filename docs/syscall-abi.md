@@ -30,6 +30,7 @@ The syscall layer uses Linux errno numbers for the exposed set:
 | `EPERM` | 1 |
 | `ENOENT` | 2 |
 | `EIO` | 5 |
+| `E2BIG` | 7 |
 | `ENOEXEC` | 8 |
 | `EBADF` | 9 |
 | `ECHILD` | 10 |
@@ -123,12 +124,24 @@ Errors: `EBADF`, `ENFILE`.
 ### `execve`
 
 Loads a static ELF64 executable from an absolute VFS path and enters it in ring
-3. Phase 10 replaces the current user image and stack pages, but still accepts
-only `argv == NULL` and `envp == NULL`; stack construction for argv/envp/auxv
-remains future work. Descriptors marked `O_CLOEXEC` are closed only after the
-image has loaded successfully.
+3. Phase 10 replaces the current user image and stack pages, accepts null or
+bounded `argv`/`envp` vectors, and builds the initial stack as:
 
-Errors: `EFAULT`, `EINVAL`, `ENOENT`, `ENOEXEC`, VFS-mapped errors.
+```text
+argc
+argv[0] ... argv[n - 1]
+NULL
+envp[0] ... envp[n - 1]
+NULL
+NUL-terminated argument and environment strings
+```
+
+The current implementation caps each vector at eight strings and each string at
+256 bytes. Larger vectors or strings fail with `E2BIG`. Auxv remains future
+work. Descriptors marked `O_CLOEXEC` are closed only after the image has loaded
+successfully.
+
+Errors: `E2BIG`, `EFAULT`, `EINVAL`, `ENOENT`, `ENOEXEC`, VFS-mapped errors.
 
 ### `wait4`
 
@@ -196,8 +209,10 @@ allocation, child exit state, `wait4` status reporting, and one-shot reaping.
 
 The exec slice adds `execve_load`, covering side-effect-free validation of the
 initramfs `/exec-ok` ELF image through the exec loader path and close-on-exec
-descriptor cleanup. The QEMU init path also exercises the successful user-mode
-transition: `/init` emits `[ZIGIX:INIT:START]`, execs `/exec-ok`, and the
-replacement image emits `[ZIGIX:INIT:OK]`. The same userspace smoke binaries
-compile against `userspace/lib/sys.zig`, which provides the current `_exit`
-and `waitpid` compatibility wrappers.
+descriptor cleanup. `execve_argv_stack` covers bounded argv/envp copy-in and
+the initial stack shape. The QEMU init path also exercises the successful
+user-mode transition with non-null argv/envp: `/init` emits
+`[ZIGIX:INIT:START]`, execs `/exec-ok`, and the replacement image emits
+`[ZIGIX:INIT:OK]`. The same userspace smoke binaries compile against
+`userspace/lib/sys.zig`, which provides the current `_exit` and `waitpid`
+compatibility wrappers.
