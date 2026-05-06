@@ -132,6 +132,12 @@ pub const ExecArgs = struct {
     }
 };
 
+pub const PreparedSpawn = struct {
+    pid: proc.Pid,
+    entry: usize,
+    stack_top: usize,
+};
+
 pub const Process = struct {
     fd_table: [MAX_FDS]?Descriptor = [_]?Descriptor{null} ** MAX_FDS,
 
@@ -217,6 +223,7 @@ pub fn invoke(num: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64, a
         numbers.exit => sysExit(arg0),
         numbers.wait4 => sysWait4(arg0, arg1, arg2, arg3),
         numbers.exit_group => sysExit(arg0),
+        numbers.posix_spawn => sysPosixSpawn(arg0, arg1, arg2),
         else => errno.fail(errno.NOSYS),
     };
 }
@@ -408,6 +415,20 @@ fn sysExecve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) i64 {
     arch.user.enter(image.entry, image.stack_top);
 }
 
+fn sysPosixSpawn(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) i64 {
+    const image = preparePosixSpawn(path_ptr, argv_ptr, envp_ptr) catch |err| return mapSpawnError(err);
+
+    current_process.closeOnExec();
+    proc.switchTo(image.pid) catch |err| {
+        cleanupPreparedSpawn(image.pid);
+        return errno.fail(switch (err) {
+            error.NoProcess => errno.SRCH,
+            else => errno.INVAL,
+        });
+    };
+    arch.user.enter(image.entry, image.stack_top);
+}
+
 fn sysWait4(pid_arg: u64, status_ptr: u64, options: u64, rusage_ptr: u64) i64 {
     if (rusage_ptr != 0) return errno.fail(errno.INVAL);
     const requested_pid: i64 = @bitCast(pid_arg);
@@ -530,6 +551,43 @@ pub fn execArgsForTest(argv_ptr: u64, envp_ptr: u64) ExecCopyError!*const ExecAr
     return copyExecArgs(argv_ptr, envp_ptr);
 }
 
+pub fn preparePosixSpawnForTest(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) ?PreparedSpawn {
+    return preparePosixSpawn(path_ptr, argv_ptr, envp_ptr) catch null;
+}
+
+pub fn cleanupPreparedSpawnForTest(pid: proc.Pid) void {
+    cleanupPreparedSpawn(pid);
+}
+
+fn preparePosixSpawn(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) !PreparedSpawn {
+    const parent = proc.currentPid();
+    const path = userCString(path_ptr) orelse return error.Fault;
+    const args = try copyExecArgs(argv_ptr, envp_ptr);
+    const inode = try fs.vfs.lookup(path);
+    const child = try proc.spawnChild(parent);
+    errdefer cleanupPreparedSpawn(child);
+
+    var segments: [8]elf.parse.Segment = undefined;
+    var argv_slices: [MAX_EXEC_ARGS][]const u8 = undefined;
+    var envp_slices: [MAX_EXEC_ENVS][]const u8 = undefined;
+    const image = try elf.loader.loadStaticUserForProcess(child, inode.data, &segments, .{
+        .argv = args.argv(&argv_slices),
+        .envp = args.envp(&envp_slices),
+    });
+
+    return .{
+        .pid = child,
+        .entry = image.entry,
+        .stack_top = image.stack_top,
+    };
+}
+
+fn cleanupPreparedSpawn(pid: proc.Pid) void {
+    elf.loader.releaseProcessPages(pid);
+    _ = proc.markExited(pid, 127);
+    _ = proc.wait4(proc.currentPid(), @intCast(pid), null, 0) catch {};
+}
+
 fn fdIndex(fd: u64) ?usize {
     if (fd >= MAX_FDS) return null;
     return @intCast(fd);
@@ -633,6 +691,34 @@ fn mapExecError(err: elf.loader.Error) i64 {
         error.UserStackOverflow => errno.BIG,
         error.NoProcess => errno.SRCH,
         error.NotAligned, error.AlreadyMapped, error.NotMapped, error.Unsupported => errno.INVAL,
+        else => errno.NOEXEC,
+    });
+}
+
+fn mapSpawnError(err: anyerror) i64 {
+    return errno.fail(switch (err) {
+        error.Fault => errno.FAULT,
+        error.TooLong, error.TooMany, error.UserStackOverflow => errno.BIG,
+        error.NotMounted => errno.IO,
+        error.NotFound => errno.NOENT,
+        error.NotDirectory => errno.NOTDIR,
+        error.IsDirectory => errno.ISDIR,
+        error.AlreadyExists, error.InvalidPath => errno.INVAL,
+        error.PathTooLong => errno.NAMETOOLONG,
+        error.TooManyNodes,
+        error.NameStorageFull,
+        error.MalformedInitramfs,
+        error.OutOfMemory,
+        error.RegionTableFull,
+        error.TableFull,
+        => errno.NFILE,
+        error.NoProcess => errno.SRCH,
+        error.InvalidArgument,
+        error.NotAligned,
+        error.AlreadyMapped,
+        error.NotMapped,
+        error.Unsupported,
+        => errno.INVAL,
         else => errno.NOEXEC,
     });
 }

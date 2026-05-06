@@ -32,12 +32,13 @@ descriptor cleanup, builds a bounded argv/envp initial stack, and is exercised
 by `/init` execing `/exec-ok`. Each process now owns its user address space
 explicitly via a per-PID region registry; `execve` drains the calling
 process's regions and unmaps them instead of scanning a fixed range. The first
-posix_spawn-style preparation slice can allocate a separate child page-table
-root, load a static child image in that target address space, and register
-PT_LOAD + stack regions against the child PID, with QEMU coverage via
-`process_page_tables` and `spawn_child_image`; runnable child processes still
-need scheduler context switching and kernel stack ownership rules before two
-userspaces can coexist. auxv is still future work.
+posix_spawn-style path can allocate a separate child page-table root, load a
+static child image in that target address space, and register PT_LOAD + stack
+regions against the child PID, with QEMU coverage via `process_page_tables`,
+`spawn_child_image`, and `posix_spawn_handoff`. The `/init` smoke path now uses
+a one-way `posix_spawn` handoff to run `/exec-ok`; scheduler context switching
+and kernel stack ownership still need to land before `posix_spawn` can return
+a child PID to the parent. auxv is still future work.
 
 See [`docs/roadmap.md`](docs/roadmap.md) for the phased plan and
 [`docs/bun-zig-toolchain.md`](docs/bun-zig-toolchain.md) for the toolchain

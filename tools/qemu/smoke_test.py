@@ -58,6 +58,7 @@ PHASES: dict[str, list[str]] = {
         "[ZIGIX:TEST:PASS:process_address_space]",
         "[ZIGIX:TEST:PASS:process_page_tables]",
         "[ZIGIX:TEST:PASS:spawn_child_image]",
+        "[ZIGIX:TEST:PASS:posix_spawn_handoff]",
         "[ZIGIX:TEST:PASS:execve_load]",
         "[ZIGIX:TEST:PASS:execve_argv_stack]",
         "[ZIGIX:INIT:START]",

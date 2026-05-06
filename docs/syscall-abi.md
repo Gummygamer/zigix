@@ -2,7 +2,8 @@
 
 Phase 6 defines Zigix syscall ABI v0 for x86_64. The registry deliberately
 uses Linux x86_64 syscall numbers for the initial subset so early userspace can
-share conventional syscall stubs.
+share conventional syscall stubs. Zigix-only extension numbers start at 4000
+until a compatibility layer decides how to present them to libc.
 
 ## Calling Convention
 
@@ -61,6 +62,7 @@ The syscall layer uses Linux errno numbers for the exposed set:
 | 60 | `exit` | `void exit(int status)` |
 | 61 | `wait4` | `pid_t wait4(pid_t pid, int *wstatus, int options, void *rusage)` |
 | 231 | `exit_group` | `void exit_group(int status)` |
+| 4000 | `posix_spawn` | `int posix_spawn(const char *path, char *const argv[], char *const envp[])` |
 
 ### `read`
 
@@ -144,6 +146,22 @@ successfully.
 
 Errors: `E2BIG`, `EFAULT`, `EINVAL`, `ENOENT`, `ENOEXEC`, VFS-mapped errors.
 
+### `posix_spawn`
+
+Zigix exposes a temporary extension syscall for the Phase 10 spawn handoff. It
+creates a child PID, loads a static ELF64 executable from an absolute VFS path
+into the child's page-table root, builds the same bounded `argv`/`envp` stack
+shape as `execve`, switches the current process to that child, and enters ring
+3. On success this syscall does not return to the caller yet.
+
+This is intentionally narrower than POSIX `posix_spawn`: there is no pid-out
+argument, file actions, spawn attributes, or parent resumption until the
+scheduler can park and resume independent processes. Descriptors marked
+`O_CLOEXEC` are closed during the one-way handoff.
+
+Errors: `E2BIG`, `EFAULT`, `EINVAL`, `ENOENT`, `ENOEXEC`, `ENFILE`,
+VFS-mapped errors.
+
 ### `wait4`
 
 Reaps an already-exited child process. Phase 10 supports `pid > 0` and
@@ -220,9 +238,10 @@ descriptor cleanup. `execve_argv_stack` covers bounded argv/envp copy-in and
 the initial stack shape. `spawn_child_image` covers the in-kernel preparation
 path for future `posix_spawn`: loading `/exec-ok` for a child PID while keeping
 the parent's region registry unchanged, then releasing the child's regions.
-The QEMU init path also exercises the successful
-user-mode transition with non-null argv/envp: `/init` emits
-`[ZIGIX:INIT:START]`, execs `/exec-ok`, and the replacement image emits
+`posix_spawn_handoff` covers the syscall preparation path, child page-table
+ownership, and the current one-way handoff limitations. The QEMU init path also
+exercises the successful user-mode transition with non-null argv/envp: `/init`
+emits `[ZIGIX:INIT:START]`, spawns `/exec-ok`, and the child image emits
 `[ZIGIX:INIT:OK]`. The same userspace smoke binaries compile against
-`userspace/lib/sys.zig`, which provides the current `_exit` and `waitpid`
-compatibility wrappers.
+`userspace/lib/sys.zig`, which provides the current `_exit`, `waitpid`, and
+`posixSpawn` compatibility wrappers.

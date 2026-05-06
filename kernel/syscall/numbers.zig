@@ -16,3 +16,4 @@ pub const execve: u64 = 59;
 pub const exit: u64 = 60;
 pub const wait4: u64 = 61;
 pub const exit_group: u64 = 231;
+pub const posix_spawn: u64 = 4000;

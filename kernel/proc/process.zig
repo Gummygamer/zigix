@@ -66,6 +66,13 @@ pub fn currentAddressSpace() mm.paging.AddressSpace {
     return addressSpace(current_pid) orelse mm.paging.activeAddressSpace();
 }
 
+pub fn switchTo(pid: Pid) Error!void {
+    const process = find(pid) orelse return error.NoProcess;
+    if (process.state != .running) return error.NoProcess;
+    current_pid = pid;
+    mm.paging.switchAddressSpace(process.address_space);
+}
+
 pub fn addressSpace(pid: Pid) ?mm.paging.AddressSpace {
     const proc = find(pid) orelse return null;
     return proc.address_space;

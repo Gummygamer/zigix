@@ -17,6 +17,7 @@ pub const SYS_execve: u64 = 59;
 pub const SYS_exit: u64 = 60;
 pub const SYS_wait4: u64 = 61;
 pub const SYS_exit_group: u64 = 231;
+pub const SYS_posix_spawn: u64 = 4000;
 
 pub const WNOHANG: u64 = 1;
 
@@ -30,6 +31,10 @@ pub fn write(fd: u64, bytes: []const u8) i64 {
 
 pub fn execve(path: [*:0]const u8, argv: usize, envp: usize) i64 {
     return syscall3(SYS_execve, @intFromPtr(path), argv, envp);
+}
+
+pub fn posixSpawn(path: [*:0]const u8, argv: usize, envp: usize) i64 {
+    return syscall3(SYS_posix_spawn, @intFromPtr(path), argv, envp);
 }
 
 pub fn wait4(pid: i64, status: ?*i32, options: u64, rusage: ?*anyopaque) i64 {

@@ -79,6 +79,11 @@ pub const TEST_spawn_child_image = testing.Test{
     .run = spawnChildImage,
 };
 
+pub const TEST_posix_spawn_handoff = testing.Test{
+    .name = "posix_spawn_handoff",
+    .run = posixSpawnHandoff,
+};
+
 pub const TEST_execve_load = testing.Test{
     .name = "execve_load",
     .run = execveLoad,
@@ -469,6 +474,40 @@ fn spawnChildImage() testing.TestError!void {
     if (!proc.markExited(child, 0)) return error.SpawnChildExitFailed;
     const waited = syscall.dispatch.invoke(syscall.numbers.wait4, child, 0, 0, 0, 0, 0);
     if (waited != child) return error.SpawnChildReapFailed;
+}
+
+fn posixSpawnHandoff() testing.TestError!void {
+    if (proc.currentRegionCount() != 0) return error.PosixSpawnParentRegionRegistryDirty;
+
+    const path = "/exec-ok\x00";
+    const arg0 = "/exec-ok\x00";
+    const arg1 = "spawn-handoff\x00";
+    const env0 = "ZIGIX_SPAWN=handoff\x00";
+    const argv = [_]u64{ @intFromPtr(arg0.ptr), @intFromPtr(arg1.ptr), 0 };
+    const envp = [_]u64{ @intFromPtr(env0.ptr), 0 };
+
+    const prepared = syscall.dispatch.preparePosixSpawnForTest(
+        @intFromPtr(path.ptr),
+        @intFromPtr(&argv),
+        @intFromPtr(&envp),
+    ) orelse return error.PosixSpawnPrepareFailed;
+    defer syscall.dispatch.cleanupPreparedSpawnForTest(prepared.pid);
+
+    if (prepared.entry == 0 or prepared.stack_top == 0) return error.PosixSpawnImageInvalid;
+    if (proc.currentRegionCount() != 0) return error.PosixSpawnRegisteredParentRegion;
+    if (proc.regionCount(prepared.pid) == 0) return error.PosixSpawnChildRegionsMissing;
+    if (mm.paging.walk(prepared.entry) != null) return error.PosixSpawnMappedParentImage;
+
+    const child_space = proc.addressSpace(prepared.pid) orelse return error.PosixSpawnMissingAddressSpace;
+    if (mm.paging.walkIn(child_space, prepared.entry) == null) return error.PosixSpawnChildEntryMissing;
+    if (mm.paging.walkIn(child_space, prepared.stack_top - @sizeOf(usize)) == null) {
+        return error.PosixSpawnChildStackMissing;
+    }
+
+    const missing = "/missing\x00";
+    if (syscall.dispatch.invoke(syscall.numbers.posix_spawn, @intFromPtr(missing.ptr), 0, 0, 0, 0, 0) != -syscall.errno.NOENT) {
+        return error.PosixSpawnMissingPathWrongErrno;
+    }
 }
 
 fn execveLoad() testing.TestError!void {
