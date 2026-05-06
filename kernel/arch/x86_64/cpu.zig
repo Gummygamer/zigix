@@ -21,6 +21,13 @@ pub inline fn readCr3() usize {
     );
 }
 
+pub inline fn writeCr3(value: usize) void {
+    asm volatile ("mov %[value], %%cr3"
+        :
+        : [value] "r" (value),
+        : .{ .memory = true });
+}
+
 pub inline fn readCr2() usize {
     return asm volatile ("mov %%cr2, %[result]"
         : [result] "=r" (-> usize),

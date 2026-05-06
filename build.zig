@@ -121,6 +121,9 @@ pub fn build(b: *std.Build) void {
         .single_threaded = true,
         .strip = false,
         .omit_frame_pointer = false,
+        .imports = &.{
+            .{ .name = "mm", .module = mm_module },
+        },
     });
 
     const elf_module = b.createModule(.{

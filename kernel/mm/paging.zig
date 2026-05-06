@@ -28,8 +28,16 @@ pub const Mapping = struct {
     writable: bool,
 };
 
+pub const AddressSpace = struct {
+    pml4: usize,
+};
+
 pub fn walk(virtual_addr: usize) ?Mapping {
-    const pml4: [*]const u64 = @ptrFromInt(cpu.readCr3() & ~@as(usize, 0xfff));
+    return walkIn(activeAddressSpace(), virtual_addr);
+}
+
+pub fn walkIn(space: AddressSpace, virtual_addr: usize) ?Mapping {
+    const pml4: [*]const u64 = @ptrFromInt(space.pml4);
     const pml4e = pml4[pml4Index(virtual_addr)];
     if ((pml4e & PRESENT) == 0) return null;
 
@@ -66,14 +74,18 @@ pub fn walk(virtual_addr: usize) ?Mapping {
 }
 
 pub fn mapPage(virtual_addr: usize, physical_addr: usize, writable: bool) MapError!void {
-    return mapPageInternal(virtual_addr, physical_addr, .{
+    return mapPageInternal(activeAddressSpace(), virtual_addr, physical_addr, .{
         .writable = writable,
         .user = false,
     });
 }
 
 pub fn mapUserPage(virtual_addr: usize, physical_addr: usize, writable: bool) MapError!void {
-    return mapPageInternal(virtual_addr, physical_addr, .{
+    return mapUserPageIn(activeAddressSpace(), virtual_addr, physical_addr, writable);
+}
+
+pub fn mapUserPageIn(space: AddressSpace, virtual_addr: usize, physical_addr: usize, writable: bool) MapError!void {
+    return mapPageInternal(space, virtual_addr, physical_addr, .{
         .writable = writable,
         .user = true,
     });
@@ -84,12 +96,12 @@ const MapOptions = struct {
     user: bool,
 };
 
-fn mapPageInternal(virtual_addr: usize, physical_addr: usize, options: MapOptions) MapError!void {
+fn mapPageInternal(space: AddressSpace, virtual_addr: usize, physical_addr: usize, options: MapOptions) MapError!void {
     if (virtual_addr % PAGE_4K != 0 or physical_addr % PAGE_4K != 0) {
         return error.NotAligned;
     }
 
-    const pml4 = activePml4();
+    const pml4 = pml4FromAddressSpace(space);
     const pdpt = try ensureChildTable(&pml4[pml4Index(virtual_addr)], options.user);
     const pd = try ensureChildTable(&pdpt[pdptIndex(virtual_addr)], options.user);
     const pde = &pd[pdIndex(virtual_addr)];
@@ -103,9 +115,13 @@ fn mapPageInternal(virtual_addr: usize, physical_addr: usize, options: MapOption
 }
 
 pub fn unmapPage(virtual_addr: usize) MapError!void {
+    return unmapPageIn(activeAddressSpace(), virtual_addr);
+}
+
+pub fn unmapPageIn(space: AddressSpace, virtual_addr: usize) MapError!void {
     if (virtual_addr % PAGE_4K != 0) return error.NotAligned;
 
-    const pml4 = activePml4();
+    const pml4 = pml4FromAddressSpace(space);
     const pml4e = pml4[pml4Index(virtual_addr)];
     if ((pml4e & PRESENT) == 0) return error.NotMapped;
 
@@ -122,11 +138,73 @@ pub fn unmapPage(virtual_addr: usize) MapError!void {
     if ((pte.* & PRESENT) == 0) return error.NotMapped;
 
     pte.* = 0;
-    invalidatePage(virtual_addr);
+    if (space.pml4 == activeAddressSpace().pml4) invalidatePage(virtual_addr);
 }
 
-fn activePml4() [*]u64 {
-    return @ptrFromInt(cpu.readCr3() & ~@as(usize, 0xfff));
+pub fn activeAddressSpace() AddressSpace {
+    return .{ .pml4 = cpu.readCr3() & ~@as(usize, 0xfff) };
+}
+
+pub fn switchAddressSpace(space: AddressSpace) void {
+    cpu.writeCr3(space.pml4);
+}
+
+pub fn createUserAddressSpace() MapError!AddressSpace {
+    const source_pml4 = pml4FromAddressSpace(activeAddressSpace());
+    const source_pml4e = source_pml4[0];
+    if ((source_pml4e & PRESENT) == 0 or (source_pml4e & HUGE) != 0) return error.Unsupported;
+
+    const pml4_page = physical.allocPage() catch return error.OutOfMemory;
+    @memset(pageBytes(pml4_page), 0);
+    errdefer physical.freePage(pml4_page);
+
+    const pdpt_page = physical.allocPage() catch return error.OutOfMemory;
+    @memset(pageBytes(pdpt_page), 0);
+    errdefer physical.freePage(pdpt_page);
+
+    const new_pml4 = pml4FromAddressSpace(.{ .pml4 = pml4_page });
+    const new_pdpt: [*]u64 = @ptrFromInt(pdpt_page);
+    const source_pdpt = tableFromEntry(source_pml4e);
+
+    new_pdpt[0] = source_pdpt[0];
+    new_pml4[0] = @as(u64, pdpt_page) | PRESENT | WRITABLE;
+
+    var index: usize = 1;
+    while (index < 512) : (index += 1) {
+        new_pml4[index] = source_pml4[index];
+    }
+
+    return .{ .pml4 = pml4_page };
+}
+
+pub fn destroyUserAddressSpace(space: AddressSpace) void {
+    if (space.pml4 == activeAddressSpace().pml4) return;
+
+    const pml4 = pml4FromAddressSpace(space);
+    const pml4e0 = pml4[0];
+    if ((pml4e0 & PRESENT) != 0 and (pml4e0 & HUGE) == 0) {
+        const pdpt = tableFromEntry(pml4e0);
+        var pdpt_index: usize = 1;
+        while (pdpt_index < 512) : (pdpt_index += 1) {
+            const pdpte = pdpt[pdpt_index];
+            if ((pdpte & PRESENT) == 0 or (pdpte & HUGE) != 0) continue;
+            const pd = tableFromEntry(pdpte);
+            var pd_index: usize = 0;
+            while (pd_index < 512) : (pd_index += 1) {
+                const pde = pd[pd_index];
+                if ((pde & PRESENT) == 0 or (pde & HUGE) != 0) continue;
+                const pt = tableFromEntry(pde);
+                physical.freePage(@intFromPtr(pt));
+            }
+            physical.freePage(@intFromPtr(pd));
+        }
+        physical.freePage(@intFromPtr(pdpt));
+    }
+    physical.freePage(space.pml4);
+}
+
+fn pml4FromAddressSpace(space: AddressSpace) [*]u64 {
+    return @ptrFromInt(space.pml4);
 }
 
 fn ensureChildTable(entry: *u64, user: bool) MapError![*]u64 {

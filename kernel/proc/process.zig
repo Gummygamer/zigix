@@ -1,5 +1,7 @@
 //! Minimal process table for Phase 10 lifecycle work.
 
+const mm = @import("mm");
+
 pub const MAX_PROCESSES: usize = 16;
 pub const MAX_PROCESS_REGIONS: usize = 16;
 
@@ -9,9 +11,11 @@ pub const Error = error{
     InvalidArgument,
     NoChild,
     NoProcess,
+    OutOfMemory,
     RegionTableFull,
     WouldBlock,
     TableFull,
+    Unsupported,
 };
 
 pub const WNOHANG: u64 = 1;
@@ -32,6 +36,7 @@ const Process = struct {
     pid: Pid = 0,
     parent: ?Pid = null,
     exit_status: u8 = 0,
+    address_space: mm.paging.AddressSpace = .{ .pml4 = 0 },
     regions: [MAX_PROCESS_REGIONS]Region = [_]Region{.{ .virtual_start = 0, .page_count = 0 }} ** MAX_PROCESS_REGIONS,
     region_count: usize = 0,
 };
@@ -48,12 +53,22 @@ pub fn init() void {
         .state = .running,
         .pid = init_pid,
         .parent = null,
+        .address_space = mm.paging.activeAddressSpace(),
     };
     current_pid = init_pid;
 }
 
 pub fn currentPid() Pid {
     return current_pid;
+}
+
+pub fn currentAddressSpace() mm.paging.AddressSpace {
+    return addressSpace(current_pid) orelse mm.paging.activeAddressSpace();
+}
+
+pub fn addressSpace(pid: Pid) ?mm.paging.AddressSpace {
+    const proc = find(pid) orelse return null;
+    return proc.address_space;
 }
 
 pub fn registerCurrentRegion(virtual_start: usize, page_count: usize) Error!void {
@@ -98,11 +113,17 @@ pub fn drainRegions(pid: Pid, out: []Region) usize {
 pub fn spawnChild(parent: Pid) Error!Pid {
     if (find(parent) == null) return error.InvalidArgument;
     const slot = freeSlot() orelse return error.TableFull;
+    const address_space = mm.paging.createUserAddressSpace() catch |err| return switch (err) {
+        error.OutOfMemory => error.OutOfMemory,
+        error.Unsupported => error.Unsupported,
+        error.AlreadyMapped, error.NotAligned, error.NotMapped => error.InvalidArgument,
+    };
     const pid = allocatePid();
     slot.* = .{
         .state = .running,
         .pid = pid,
         .parent = parent,
+        .address_space = address_space,
     };
     return pid;
 }
@@ -128,8 +149,15 @@ pub fn wait4(caller: Pid, requested_pid: i64, status_out: ?*i32, options: u64) E
     };
     const waited_pid = child.pid;
     if (status_out) |out| out.* = exitStatusWord(child.exit_status);
+    releaseProcessResources(child);
     child.* = .{};
     return waited_pid;
+}
+
+fn releaseProcessResources(proc: *Process) void {
+    if (proc.address_space.pml4 != 0) {
+        mm.paging.destroyUserAddressSpace(proc.address_space);
+    }
 }
 
 fn findExitedChild(parent: Pid, requested_pid: i64) ?*Process {

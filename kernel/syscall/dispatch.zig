@@ -418,7 +418,8 @@ fn sysWait4(pid_arg: u64, status_ptr: u64, options: u64, rusage_ptr: u64) i64 {
             error.NoChild => errno.CHILD,
             error.WouldBlock => errno.AGAIN,
             error.NoProcess => errno.SRCH,
-            error.RegionTableFull, error.TableFull => errno.NFILE,
+            error.OutOfMemory, error.RegionTableFull, error.TableFull => errno.NFILE,
+            error.Unsupported => errno.INVAL,
         });
     };
     return @intCast(waited);

@@ -99,24 +99,25 @@ pub fn releaseCurrentProcessPages() void {
 }
 
 pub fn releaseProcessPages(pid: proc.Pid) void {
+    const address_space = proc.addressSpace(pid) orelse return;
     var drained: [proc.MAX_PROCESS_REGIONS]proc.Region = undefined;
     while (true) {
         const count = proc.drainRegions(pid, &drained);
         if (count == 0) return;
         var index: usize = 0;
         while (index < count) : (index += 1) {
-            unmapRegion(drained[index]);
+            unmapRegion(address_space, drained[index]);
         }
     }
 }
 
-fn unmapRegion(region: proc.Region) void {
+fn unmapRegion(address_space: mm.paging.AddressSpace, region: proc.Region) void {
     var page_index: usize = 0;
     while (page_index < region.page_count) : (page_index += 1) {
         const addr = region.virtual_start + page_index * PAGE_SIZE;
-        const mapping = mm.paging.walk(addr) orelse continue;
+        const mapping = mm.paging.walkIn(address_space, addr) orelse continue;
         if (mapping.page_size != PAGE_SIZE) continue;
-        mm.paging.unmapPage(addr) catch continue;
+        mm.paging.unmapPageIn(address_space, addr) catch continue;
         mm.physical.freePage(mapping.physical);
     }
 }
@@ -132,6 +133,11 @@ pub fn loadStaticUserForProcess(pid: proc.Pid, image: []const u8, segment_buffer
 }
 
 fn loadPlannedUserForProcess(pid: proc.Pid, image: []const u8, plan: UserLoadPlan, stack_spec: StackSpec) Error!UserImage {
+    const target_space = proc.addressSpace(pid) orelse return error.NoProcess;
+    const previous_space = mm.paging.activeAddressSpace();
+    mm.paging.switchAddressSpace(target_space);
+    defer mm.paging.switchAddressSpace(previous_space);
+
     try validateStackSpec(stack_spec);
     errdefer releaseProcessPages(pid);
 

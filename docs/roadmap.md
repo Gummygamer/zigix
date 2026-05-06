@@ -23,7 +23,7 @@ rejected.
 | 7     | ELF64 static loader                  | done         | `[ZIGIX:ELF:OK]` |
 | 8     | User mode + init                     | done         | `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 9     | File descriptors and basic Unix I/O  | done         | `[ZIGIX:TEST:PASS:syscall_fd_table]`, `[ZIGIX:TEST:PASS:syscall_pipe]` |
-| 10    | `exec` and process lifecycle         | in progress  | `[ZIGIX:TEST:PASS:process_lifecycle]`, `[ZIGIX:TEST:PASS:process_address_space]`, `[ZIGIX:TEST:PASS:spawn_child_image]`, `[ZIGIX:TEST:PASS:execve_load]`, `[ZIGIX:TEST:PASS:execve_argv_stack]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
+| 10    | `exec` and process lifecycle         | in progress  | `[ZIGIX:TEST:PASS:process_lifecycle]`, `[ZIGIX:TEST:PASS:process_address_space]`, `[ZIGIX:TEST:PASS:process_page_tables]`, `[ZIGIX:TEST:PASS:spawn_child_image]`, `[ZIGIX:TEST:PASS:execve_load]`, `[ZIGIX:TEST:PASS:execve_argv_stack]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 11–15 | Userspace expansion                  | pending      | per-phase markers TBD |
 
 ## Phase 0 — Toolchain and smoke-test skeleton ✅
@@ -230,13 +230,21 @@ userspace phases.
   wrappers, and the ELF loader can map a static user image while registering
   PT_LOAD + stack pages against a child PID. The `spawn_child_image` kernel
   test verifies the parent region list stays empty, the child owns the loaded
-  regions, and child release drains/unmaps those regions. This is still a
-  preparation path, not runnable `posix_spawn`, because the active paging
-  model still has one shared address space.
-- [ ] `fork` is deferred. The current single-address-space paging design makes
-  Unix fork semantics misleading without per-process address spaces or
-  copy-on-write; prefer `posix_spawn` as the next process-creation slice unless
-  paging ownership changes first.
+  regions, and child release drains/unmaps those regions. This started as a
+  preparation path and is now backed by separate page-table roots in the next
+  item.
+- [x] Per-process page-table roots: child processes now get their own PML4
+  with the low 1 GiB kernel identity mapping shared and userspace mappings
+  isolated. The ELF loader switches to the target process address space while
+  mapping and copying a child image, then restores the caller's address space.
+  The `process_page_tables` and expanded `spawn_child_image` tests prove child
+  user pages are visible in the child address space but absent from the
+  parent. This removes the previous single-active-address-space blocker for a
+  narrow spawn handoff; runnable concurrent processes still need scheduler
+  context switching and kernel stack ownership.
+- [ ] `fork` is deferred. Unix fork semantics are still misleading without
+  copy-on-write and a scheduler that can run separate address spaces; prefer
+  `posix_spawn` as the next process-creation slice.
 - [ ] Real blocking `waitpid`/`wait4` once scheduling can park and wake
   processes.
 
@@ -284,12 +292,12 @@ The next thing to do, concretely:
 1. Source `.env`, then run `ci/local.sh` to confirm the Phase 10 smoke
    still passes.
 2. Read the Phase 10 notes above.
-3. Continue Phase 10 from the `spawn_child_image` slice. The loader can now
-   register a child PID's image and stack regions separately from the parent,
-   but the pages still enter the single active page table. The next design
-   decision is whether to introduce per-process page tables now or add a
-   narrowly-scoped spawn handoff that replaces the current image with a child
-   image before true concurrent userspaces exist.
+3. Continue Phase 10 from the per-process page-table slice. Child images now
+   load into child-owned address spaces without leaking mappings into the
+   parent. The next concrete step is a narrow `posix_spawn` handoff model:
+   create a child process, load its image and initial stack, then run that
+   child as the current process once scheduler context-switching rules are
+   explicit enough to preserve kernel stacks and CR3.
 4. Add blocking pipe semantics after the scheduler/process lifecycle work gives
    the kernel something to block and wake.
 5. Decide how writable files should fit the current read-only initramfs/memfs

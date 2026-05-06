@@ -69,6 +69,11 @@ pub const TEST_process_address_space = testing.Test{
     .run = processAddressSpace,
 };
 
+pub const TEST_process_page_tables = testing.Test{
+    .name = "process_page_tables",
+    .run = processPageTables,
+};
+
 pub const TEST_spawn_child_image = testing.Test{
     .name = "spawn_child_image",
     .run = spawnChildImage,
@@ -392,6 +397,39 @@ fn processAddressSpace() testing.TestError!void {
     if (proc.currentRegionCount() != 0) return error.RegionRegistryFinalNotDrained;
 }
 
+fn processPageTables() testing.TestError!void {
+    const child = try proc.spawnChild(proc.currentPid());
+    const child_space = proc.addressSpace(child) orelse return error.ProcessMissingAddressSpace;
+    const user_addr: usize = 0x4000_0000;
+
+    if (mm.paging.walk(user_addr) != null) return error.ProcessParentUserMappingDirty;
+
+    const page = try mm.physical.allocPage();
+    var mapped = false;
+    errdefer {
+        if (mapped) mm.paging.unmapPageIn(child_space, user_addr) catch {};
+        mm.physical.freePage(page);
+        _ = proc.markExited(child, 1);
+        _ = syscall.dispatch.invoke(syscall.numbers.wait4, child, 0, 0, 0, 0, 0);
+    }
+
+    try mm.paging.mapUserPageIn(child_space, user_addr, page, true);
+    mapped = true;
+
+    if (mm.paging.walk(user_addr) != null) return error.ProcessChildMappingLeakedToParent;
+    const child_mapping = mm.paging.walkIn(child_space, user_addr) orelse return error.ProcessChildMappingMissing;
+    if (child_mapping.physical != page) return error.ProcessChildMappingWrongPhysical;
+    if (!child_mapping.writable) return error.ProcessChildMappingReadOnly;
+
+    try mm.paging.unmapPageIn(child_space, user_addr);
+    mapped = false;
+    mm.physical.freePage(page);
+
+    if (!proc.markExited(child, 0)) return error.ProcessPageTableChildExitFailed;
+    const waited = syscall.dispatch.invoke(syscall.numbers.wait4, child, 0, 0, 0, 0, 0);
+    if (waited != child) return error.ProcessPageTableChildReapFailed;
+}
+
 fn spawnChildImage() testing.TestError!void {
     if (proc.currentRegionCount() != 0) return error.SpawnParentRegionRegistryDirty;
 
@@ -416,6 +454,13 @@ fn spawnChildImage() testing.TestError!void {
     if (image.entry == 0 or image.stack_top == 0) return error.SpawnImageLoadInvalid;
     if (proc.currentRegionCount() != 0) return error.SpawnLoadRegisteredParentRegion;
     if (proc.regionCount(child) == 0) return error.SpawnLoadDidNotRegisterChildRegions;
+    if (mm.paging.walk(image.entry) != null) return error.SpawnLoadMappedParentImage;
+
+    const child_space = proc.addressSpace(child) orelse return error.SpawnMissingAddressSpace;
+    if (mm.paging.walkIn(child_space, image.entry) == null) return error.SpawnChildEntryMappingMissing;
+    if (mm.paging.walkIn(child_space, image.stack_top - @sizeOf(usize)) == null) {
+        return error.SpawnChildStackMappingMissing;
+    }
 
     elf.loader.releaseProcessPages(child);
     if (proc.regionCount(child) != 0) return error.SpawnReleaseLeftChildRegions;
