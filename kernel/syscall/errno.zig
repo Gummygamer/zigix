@@ -4,6 +4,7 @@ pub const PERM: i64 = 1;
 pub const NOENT: i64 = 2;
 pub const INTR: i64 = 4;
 pub const IO: i64 = 5;
+pub const NOEXEC: i64 = 8;
 pub const BADF: i64 = 9;
 pub const CHILD: i64 = 10;
 pub const FAULT: i64 = 14;

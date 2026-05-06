@@ -23,7 +23,7 @@ rejected.
 | 7     | ELF64 static loader                  | done         | `[ZIGIX:ELF:OK]` |
 | 8     | User mode + init                     | done         | `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 9     | File descriptors and basic Unix I/O  | done         | `[ZIGIX:TEST:PASS:syscall_fd_table]`, `[ZIGIX:TEST:PASS:syscall_pipe]` |
-| 10    | `exec` and process lifecycle         | in progress  | `[ZIGIX:TEST:PASS:process_lifecycle]` |
+| 10    | `exec` and process lifecycle         | in progress  | `[ZIGIX:TEST:PASS:process_lifecycle]`, `[ZIGIX:TEST:PASS:execve_load]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 11–15 | Userspace expansion                  | pending      | per-phase markers TBD |
 
 ## Phase 0 — Toolchain and smoke-test skeleton ✅
@@ -201,8 +201,17 @@ userspace phases.
 
 - [x] Process table, pid allocator.
 - [x] `wait4` reaps exited children in the process table.
-- [ ] `fork` (or just `posix_spawn` if `fork` proves too painful for the
-  current paging design), `execve`, `waitpid`, `_exit`.
+- [x] Initial `execve(path, NULL, NULL)` syscall wiring around the static ELF
+  loader, with close-on-exec descriptor handling. This is intentionally
+  partial: it replaces the current user image and stack pages, but argv/envp
+  stack construction and explicit process address-space ownership remain
+  future work. The QEMU smoke path now proves the success case by having
+  `/init` exec `/exec-ok`, which emits `[ZIGIX:INIT:OK]`.
+- [ ] `fork` is deferred. The current single-address-space paging design makes
+  Unix fork semantics misleading without per-process address spaces or
+  copy-on-write; prefer `posix_spawn` as the next process-creation slice unless
+  paging ownership changes first. `waitpid` and `_exit` still need syscall
+  aliases/wrappers.
 - [ ] Real blocking `waitpid`/`wait4` once scheduling can park and wake
   processes.
 

@@ -123,25 +123,6 @@ pub fn build(b: *std.Build) void {
         .omit_frame_pointer = false,
     });
 
-    const syscall_module = b.createModule(.{
-        .root_source_file = b.path("kernel/syscall/syscall.zig"),
-        .target = kernel_target,
-        .optimize = optimize,
-        .code_model = .kernel,
-        .red_zone = false,
-        .pic = false,
-        .stack_protector = false,
-        .stack_check = false,
-        .single_threaded = true,
-        .strip = false,
-        .omit_frame_pointer = false,
-        .imports = &.{
-            .{ .name = "arch", .module = arch_module },
-            .{ .name = "fs", .module = fs_module },
-            .{ .name = "proc", .module = proc_module },
-        },
-    });
-
     const elf_module = b.createModule(.{
         .root_source_file = b.path("kernel/elf/elf.zig"),
         .target = kernel_target,
@@ -157,6 +138,26 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "arch", .module = arch_module },
             .{ .name = "mm", .module = mm_module },
+        },
+    });
+
+    const syscall_module = b.createModule(.{
+        .root_source_file = b.path("kernel/syscall/syscall.zig"),
+        .target = kernel_target,
+        .optimize = optimize,
+        .code_model = .kernel,
+        .red_zone = false,
+        .pic = false,
+        .stack_protector = false,
+        .stack_check = false,
+        .single_threaded = true,
+        .strip = false,
+        .omit_frame_pointer = false,
+        .imports = &.{
+            .{ .name = "arch", .module = arch_module },
+            .{ .name = "elf", .module = elf_module },
+            .{ .name = "fs", .module = fs_module },
+            .{ .name = "proc", .module = proc_module },
         },
     });
 
@@ -223,7 +224,7 @@ pub fn build(b: *std.Build) void {
         "zigix-kernel.mb",
     );
 
-    // ── Phase 8 userspace init + initramfs ───────────────────────────────
+    // ── Phase 8/10 userspace init + initramfs ────────────────────────────
     const init_module = b.createModule(.{
         .root_source_file = b.path("userspace/init/main.zig"),
         .target = kernel_target,
@@ -249,11 +250,39 @@ pub fn build(b: *std.Build) void {
 
     const install_init = b.addInstallArtifact(init_exe, .{});
 
+    const exec_ok_module = b.createModule(.{
+        .root_source_file = b.path("userspace/exec-ok/main.zig"),
+        .target = kernel_target,
+        .optimize = optimize,
+        .code_model = .small,
+        .red_zone = false,
+        .pic = false,
+        .stack_protector = false,
+        .stack_check = false,
+        .single_threaded = true,
+        .strip = false,
+        .omit_frame_pointer = false,
+    });
+
+    const exec_ok_exe = b.addExecutable(.{
+        .name = "exec-ok",
+        .root_module = exec_ok_module,
+        .use_llvm = true,
+        .use_lld = true,
+    });
+    exec_ok_exe.setLinkerScript(b.path("userspace/init/linker.ld"));
+    exec_ok_exe.entry = .{ .symbol_name = "_start" };
+
+    const install_exec_ok = b.addInstallArtifact(exec_ok_exe, .{});
+
     const pack_initramfs = b.addSystemCommand(&.{ "python3", "tools/mkinitramfs/pack.py" });
     const initramfs_path = pack_initramfs.addOutputFileArg("initramfs.zixr");
     pack_initramfs.addArg("--entry");
     pack_initramfs.addArg("init");
     pack_initramfs.addFileArg(init_exe.getEmittedBin());
+    pack_initramfs.addArg("--entry");
+    pack_initramfs.addArg("exec-ok");
+    pack_initramfs.addFileArg(exec_ok_exe.getEmittedBin());
     pack_initramfs.setName("mkinitramfs");
 
     const install_initramfs = b.addInstallFileWithDir(
@@ -269,6 +298,7 @@ pub fn build(b: *std.Build) void {
     kernel_step.dependOn(&install_kernel.step);
     kernel_step.dependOn(&install_kernel32.step);
     kernel_step.dependOn(&install_init.step);
+    kernel_step.dependOn(&install_exec_ok.step);
     kernel_step.dependOn(&install_initramfs.step);
 
     // ── check-toolchain ──────────────────────────────────────────────────

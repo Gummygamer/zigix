@@ -30,6 +30,7 @@ The syscall layer uses Linux errno numbers for the exposed set:
 | `EPERM` | 1 |
 | `ENOENT` | 2 |
 | `EIO` | 5 |
+| `ENOEXEC` | 8 |
 | `EBADF` | 9 |
 | `ECHILD` | 10 |
 | `EFAULT` | 14 |
@@ -54,6 +55,7 @@ The syscall layer uses Linux errno numbers for the exposed set:
 | 8 | `lseek` | `off_t lseek(int fd, off_t offset, int whence)` |
 | 22 | `pipe` | `int pipe(int pipefd[2])` |
 | 32 | `dup` | `int dup(int oldfd)` |
+| 59 | `execve` | `int execve(const char *path, char *const argv[], char *const envp[])` |
 | 60 | `exit` | `void exit(int status)` |
 | 61 | `wait4` | `pid_t wait4(pid_t pid, int *wstatus, int options, void *rusage)` |
 
@@ -117,6 +119,16 @@ semantics.
 
 Errors: `EBADF`, `ENFILE`.
 
+### `execve`
+
+Loads a static ELF64 executable from an absolute VFS path and enters it in ring
+3. Phase 10 replaces the current user image and stack pages, but still accepts
+only `argv == NULL` and `envp == NULL`; stack construction for argv/envp/auxv
+remains future work. Descriptors marked `O_CLOEXEC` are closed only after the
+image has loaded successfully.
+
+Errors: `EFAULT`, `EINVAL`, `ENOENT`, `ENOEXEC`, VFS-mapped errors.
+
 ### `wait4`
 
 Reaps an already-exited child process. Phase 10 supports `pid > 0` and
@@ -171,3 +183,9 @@ and `EPIPE` after all read endpoints close.
 
 The first Phase 10 lifecycle slice adds `process_lifecycle`, covering PID
 allocation, child exit state, `wait4` status reporting, and one-shot reaping.
+
+The exec slice adds `execve_load`, covering side-effect-free validation of the
+initramfs `/exec-ok` ELF image through the exec loader path and close-on-exec
+descriptor cleanup. The QEMU init path also exercises the successful user-mode
+transition: `/init` emits `[ZIGIX:INIT:START]`, execs `/exec-ok`, and the
+replacement image emits `[ZIGIX:INIT:OK]`.

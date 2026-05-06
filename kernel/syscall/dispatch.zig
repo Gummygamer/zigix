@@ -3,6 +3,7 @@
 const std = @import("std");
 
 const arch = @import("arch");
+const elf = @import("elf");
 const fs = @import("fs");
 const proc = @import("proc");
 
@@ -128,6 +129,15 @@ pub const Process = struct {
         return true;
     }
 
+    fn closeOnExec(self: *Process) void {
+        for (&self.fd_table) |*slot| {
+            const descriptor = slot.* orelse continue;
+            if (!descriptor.close_on_exec) continue;
+            releaseTarget(descriptor.target);
+            slot.* = null;
+        }
+    }
+
     fn allocFd(self: *Process) ?usize {
         var fd: usize = 0;
         while (fd < self.fd_table.len) : (fd += 1) {
@@ -161,6 +171,7 @@ pub fn invoke(num: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64, a
         numbers.lseek => sysLseek(arg0, arg1, arg2),
         numbers.pipe => sysPipe(arg0),
         numbers.dup => sysDup(arg0),
+        numbers.execve => sysExecve(arg0, arg1, arg2),
         numbers.exit => sysExit(arg0),
         numbers.wait4 => sysWait4(arg0, arg1, arg2, arg3),
         else => errno.fail(errno.NOSYS),
@@ -334,6 +345,19 @@ fn sysDup(fd_arg: u64) i64 {
     return @intCast(new_fd);
 }
 
+fn sysExecve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) i64 {
+    if (argv_ptr != 0 or envp_ptr != 0) return errno.fail(errno.INVAL);
+
+    const path = userCString(path_ptr) orelse return errno.fail(errno.FAULT);
+    const inode = fs.vfs.lookup(path) catch |err| return mapFsError(err);
+
+    var segments: [8]elf.parse.Segment = undefined;
+    const image = elf.loader.replaceStaticUser(inode.data, &segments) catch |err| return mapExecError(err);
+
+    current_process.closeOnExec();
+    arch.user.enter(image.entry, image.stack_top);
+}
+
 fn sysWait4(pid_arg: u64, status_ptr: u64, options: u64, rusage_ptr: u64) i64 {
     if (rusage_ptr != 0) return errno.fail(errno.INVAL);
     const requested_pid: i64 = @bitCast(pid_arg);
@@ -438,6 +462,17 @@ pub fn fdCloseOnExecForTest(fd_arg: u64) ?bool {
     return descriptor.close_on_exec;
 }
 
+pub fn closeOnExecForTest() void {
+    current_process.closeOnExec();
+}
+
+pub fn execvePlanForTest(path: []const u8) bool {
+    const inode = fs.vfs.lookup(path) catch return false;
+    var segments: [8]elf.parse.Segment = undefined;
+    _ = elf.loader.planStaticUser(inode.data, &segments) catch return false;
+    return true;
+}
+
 fn fdIndex(fd: u64) ?usize {
     if (fd >= MAX_FDS) return null;
     return @intCast(fd);
@@ -499,6 +534,14 @@ fn mapFsError(err: fs.vfs.Error) i64 {
         error.TooManyNodes => errno.NFILE,
         error.NameStorageFull => errno.NFILE,
         error.MalformedInitramfs => errno.IO,
+    });
+}
+
+fn mapExecError(err: elf.loader.Error) i64 {
+    return errno.fail(switch (err) {
+        error.OutOfMemory => errno.NFILE,
+        error.NotAligned, error.AlreadyMapped, error.NotMapped, error.Unsupported => errno.INVAL,
+        else => errno.NOEXEC,
     });
 }
 

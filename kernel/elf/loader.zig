@@ -33,6 +33,11 @@ pub const UserImage = struct {
     stack_top: usize,
 };
 
+pub const UserLoadPlan = struct {
+    entry: usize,
+    segments: []const parse.Segment,
+};
+
 pub fn validateStatic(image: []const u8, segment_buffer: []parse.Segment) Error!LoadedImage {
     const parsed = try parse.parse(image, segment_buffer);
     if (!entryInsideExecutableSegment(parsed)) return error.EntryOutsideLoadSegments;
@@ -43,10 +48,30 @@ pub fn validateStatic(image: []const u8, segment_buffer: []parse.Segment) Error!
     };
 }
 
-pub fn loadStaticUser(image: []const u8, segment_buffer: []parse.Segment) Error!UserImage {
+pub fn planStaticUser(image: []const u8, segment_buffer: []parse.Segment) Error!UserLoadPlan {
     const loaded = try validateStatic(image, segment_buffer);
+    for (loaded.segments) |segment| try validateUserSegment(segment);
 
-    for (loaded.segments) |segment| {
+    return .{
+        .entry = toUsize(loaded.entry) orelse return error.InvalidUserImage,
+        .segments = loaded.segments,
+    };
+}
+
+pub fn loadStaticUser(image: []const u8, segment_buffer: []parse.Segment) Error!UserImage {
+    const plan = try planStaticUser(image, segment_buffer);
+    return loadPlannedUser(image, plan);
+}
+
+pub fn replaceStaticUser(image: []const u8, segment_buffer: []parse.Segment) Error!UserImage {
+    const plan = try planStaticUser(image, segment_buffer);
+    unmapUserRange(USER_IMAGE_BASE, USER_IMAGE_LIMIT);
+    unmapUserRange(USER_STACK_BASE, USER_STACK_BASE + USER_STACK_SIZE);
+    return loadPlannedUser(image, plan);
+}
+
+fn loadPlannedUser(image: []const u8, plan: UserLoadPlan) Error!UserImage {
+    for (plan.segments) |segment| {
         try mapSegment(segment);
         const file_bytes = try segment.fileBytes(image);
         const dest: [*]u8 = @ptrFromInt(segment.virtual_address);
@@ -58,9 +83,19 @@ pub fn loadStaticUser(image: []const u8, segment_buffer: []parse.Segment) Error!
     try mm.paging.mapUserPage(USER_STACK_BASE, stack_page, true);
 
     return .{
-        .entry = toUsize(loaded.entry) orelse return error.InvalidUserImage,
+        .entry = plan.entry,
         .stack_top = USER_STACK_BASE + USER_STACK_SIZE,
     };
+}
+
+fn unmapUserRange(start: usize, end: usize) void {
+    var addr = start;
+    while (addr < end) : (addr += PAGE_SIZE) {
+        const mapping = mm.paging.walk(addr) orelse continue;
+        if (mapping.page_size != PAGE_SIZE) continue;
+        mm.paging.unmapPage(addr) catch continue;
+        mm.physical.freePage(mapping.physical);
+    }
 }
 
 pub fn selfTestStaticLoaderMarker() bool {
@@ -87,13 +122,11 @@ fn entryInsideExecutableSegment(image: parse.Image) bool {
 }
 
 fn mapSegment(segment: parse.Segment) Error!void {
+    try validateUserSegment(segment);
+
     const segment_start = toUsize(segment.virtual_address) orelse return error.InvalidUserImage;
     const memory_size = toUsize(segment.memory_size) orelse return error.InvalidUserImage;
     const raw_end = checkedAdd(segment_start, memory_size) orelse return error.InvalidUserImage;
-    if (segment_start < USER_IMAGE_BASE or raw_end > USER_IMAGE_LIMIT) {
-        return error.InvalidUserImage;
-    }
-
     const start = alignBackward(segment_start, PAGE_SIZE);
     const end = alignForward(raw_end, PAGE_SIZE);
 
@@ -102,6 +135,15 @@ fn mapSegment(segment: parse.Segment) Error!void {
         const page = try mm.physical.allocPage();
         @memset(pageBytes(page), 0);
         try mm.paging.mapUserPage(addr, page, true);
+    }
+}
+
+fn validateUserSegment(segment: parse.Segment) Error!void {
+    const segment_start = toUsize(segment.virtual_address) orelse return error.InvalidUserImage;
+    const memory_size = toUsize(segment.memory_size) orelse return error.InvalidUserImage;
+    const raw_end = checkedAdd(segment_start, memory_size) orelse return error.InvalidUserImage;
+    if (segment_start < USER_IMAGE_BASE or raw_end > USER_IMAGE_LIMIT) {
+        return error.InvalidUserImage;
     }
 }
 

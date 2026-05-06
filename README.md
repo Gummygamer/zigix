@@ -26,7 +26,10 @@ installs syscall ABI v0, validates a static ELF64 load plan, maps and enters a
 freestanding ring-3 `/init`, emits `[ZIGIX:INIT:START]` and
 `[ZIGIX:INIT:OK]` through syscalls, and has per-process descriptor tables,
 `dup`, close-on-exec metadata, basic pipe read/write coverage, and the first
-process-table/PID lifecycle slice with `wait4` reaping coverage.
+process-table/PID lifecycle slice with `wait4` reaping coverage. The initial
+`execve(path, NULL, NULL)` slice replaces the current static ELF image, applies
+close-on-exec descriptor cleanup, and is exercised by `/init` execing
+`/exec-ok`; argv/envp stack construction is still future work.
 
 See [`docs/roadmap.md`](docs/roadmap.md) for the phased plan and
 [`docs/bun-zig-toolchain.md`](docs/bun-zig-toolchain.md) for the toolchain

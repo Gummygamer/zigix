@@ -1,16 +1,13 @@
-//! First Zigix userspace process.
+//! Replacement userspace image for the Phase 10 execve smoke path.
 
 const SYS_write: u64 = 1;
-const SYS_execve: u64 = 59;
 const SYS_exit: u64 = 60;
 
 const STDOUT: u64 = 1;
 
 export fn _start() callconv(.c) noreturn {
-    write(STDOUT, "[ZIGIX:INIT:START]\n");
-    execve("/exec-ok\x00");
-    write(STDOUT, "[ZIGIX:TEST:FAIL:execve_user:returned]\n");
-    exit(1);
+    write(STDOUT, "[ZIGIX:INIT:OK]\n");
+    exit(0);
 }
 
 fn write(fd: u64, bytes: []const u8) void {
@@ -20,10 +17,6 @@ fn write(fd: u64, bytes: []const u8) void {
 fn exit(status: u64) noreturn {
     _ = syscall1(SYS_exit, status);
     while (true) asm volatile ("pause");
-}
-
-fn execve(path: []const u8) void {
-    _ = syscall3(SYS_execve, @intFromPtr(path.ptr), 0, 0);
 }
 
 fn syscall1(num: u64, arg0: u64) u64 {

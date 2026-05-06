@@ -16,8 +16,8 @@ Update this file whenever syscall or POSIX semantics change.
 | `pipe`   | partial | bounded buffer; blocking deferred          | `syscall_pipe` |
 | `dup`    | partial | lowest free fd; clears close-on-exec       | `syscall_fd_table`, `syscall_pipe` |
 | `exit`   | partial | exits QEMU through debug port              | userspace init smoke |
-| `execve` | missing | planned for Phase 10                       | none  |
-| `fork`   | missing | decision pending (Phase 13)                | none  |
+| `execve` | partial | static ELF path only; `argv`/`envp` must be `NULL` | `execve_load` |
+| `fork`   | missing | deferred; prefer `posix_spawn` until per-process address spaces exist | none  |
 | `mmap`   | missing | planned for Phase 13+                      | none  |
 | signals  | missing | planned for Phase 13+                      | none  |
 | sockets  | missing | future                                     | none  |

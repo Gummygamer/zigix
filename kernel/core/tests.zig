@@ -56,6 +56,11 @@ pub const TEST_process_lifecycle = testing.Test{
     .run = processLifecycle,
 };
 
+pub const TEST_execve_load = testing.Test{
+    .name = "execve_load",
+    .run = execveLoad,
+};
+
 pub const TEST_elf_static_loader = testing.Test{
     .name = "elf_static_loader",
     .run = elfStaticLoader,
@@ -298,6 +303,34 @@ fn processLifecycle() testing.TestError!void {
 
     if (syscall.dispatch.invoke(syscall.numbers.wait4, child, @intFromPtr(&status), 0, 0, 0, 0) != -syscall.errno.CHILD) {
         return error.ProcessDoubleWaitSucceeded;
+    }
+}
+
+fn execveLoad() testing.TestError!void {
+    const path = "/init\x00";
+    const exec_path = "/exec-ok";
+    const cloexec_fd = syscall.dispatch.invoke(syscall.numbers.open, @intFromPtr(path.ptr), syscall.dispatch.O_CLOEXEC, 0, 0, 0, 0);
+    if (cloexec_fd < 3) return error.ExecveCloexecOpenFailed;
+
+    const keep_fd = syscall.dispatch.invoke(syscall.numbers.open, @intFromPtr(path.ptr), 0, 0, 0, 0, 0);
+    if (keep_fd < 3) return error.ExecveOpenFailed;
+
+    if (!syscall.dispatch.execvePlanForTest(exec_path)) return error.ExecvePlanFailed;
+
+    syscall.dispatch.closeOnExecForTest();
+    if (syscall.dispatch.fdCloseOnExecForTest(@intCast(cloexec_fd)) != null) {
+        return error.ExecveCloexecFdSurvived;
+    }
+    if (syscall.dispatch.fdCloseOnExecForTest(@intCast(keep_fd)) != false) {
+        return error.ExecveClosedPlainFd;
+    }
+
+    if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(keep_fd), 0, 0, 0, 0, 0) != 0) {
+        return error.ExecveCloseFailed;
+    }
+
+    if (syscall.dispatch.invoke(syscall.numbers.execve, @intFromPtr(path.ptr), 1, 0, 0, 0, 0) != -syscall.errno.INVAL) {
+        return error.ExecveAcceptedArgv;
     }
 }
 
