@@ -72,7 +72,7 @@ pub fn planStaticUser(image: []const u8, segment_buffer: []parse.Segment) Error!
 
 pub fn loadStaticUser(image: []const u8, segment_buffer: []parse.Segment) Error!UserImage {
     const plan = try planStaticUser(image, segment_buffer);
-    return loadPlannedUser(image, plan, .{});
+    return loadPlannedUserForProcess(proc.currentPid(), image, plan, .{});
 }
 
 pub fn replaceStaticUser(image: []const u8, segment_buffer: []parse.Segment) Error!UserImage {
@@ -83,7 +83,7 @@ pub fn replaceStaticUserWithStack(image: []const u8, segment_buffer: []parse.Seg
     try validateStackSpec(stack);
     const plan = try planStaticUser(image, segment_buffer);
     releaseCurrentProcessPages();
-    return loadPlannedUser(image, plan, stack);
+    return loadPlannedUserForProcess(proc.currentPid(), image, plan, stack);
 }
 
 fn mapProcRegisterError(err: proc.Error) Error {
@@ -95,9 +95,13 @@ fn mapProcRegisterError(err: proc.Error) Error {
 }
 
 pub fn releaseCurrentProcessPages() void {
+    releaseProcessPages(proc.currentPid());
+}
+
+pub fn releaseProcessPages(pid: proc.Pid) void {
     var drained: [proc.MAX_PROCESS_REGIONS]proc.Region = undefined;
     while (true) {
-        const count = proc.drainCurrentRegions(&drained);
+        const count = proc.drainRegions(pid, &drained);
         if (count == 0) return;
         var index: usize = 0;
         while (index < count) : (index += 1) {
@@ -122,11 +126,17 @@ pub fn buildInitialStackForTest(stack: []u8, stack_base: usize, spec: StackSpec)
     return buildInitialStack(stack, stack_base, spec);
 }
 
-fn loadPlannedUser(image: []const u8, plan: UserLoadPlan, stack_spec: StackSpec) Error!UserImage {
+pub fn loadStaticUserForProcess(pid: proc.Pid, image: []const u8, segment_buffer: []parse.Segment, stack_spec: StackSpec) Error!UserImage {
+    const plan = try planStaticUser(image, segment_buffer);
+    return loadPlannedUserForProcess(pid, image, plan, stack_spec);
+}
+
+fn loadPlannedUserForProcess(pid: proc.Pid, image: []const u8, plan: UserLoadPlan, stack_spec: StackSpec) Error!UserImage {
     try validateStackSpec(stack_spec);
+    errdefer releaseProcessPages(pid);
 
     for (plan.segments) |segment| {
-        try mapSegment(segment);
+        try mapSegmentForProcess(pid, segment);
         const file_bytes = try segment.fileBytes(image);
         const dest: [*]u8 = @ptrFromInt(segment.virtual_address);
         @memcpy(dest[0..file_bytes.len], file_bytes);
@@ -134,8 +144,11 @@ fn loadPlannedUser(image: []const u8, plan: UserLoadPlan, stack_spec: StackSpec)
 
     const stack_page = try mm.physical.allocPage();
     @memset(pageBytes(stack_page), 0);
-    try mm.paging.mapUserPage(USER_STACK_BASE, stack_page, true);
-    proc.registerCurrentRegion(USER_STACK_BASE, 1) catch |err| {
+    mm.paging.mapUserPage(USER_STACK_BASE, stack_page, true) catch |err| {
+        mm.physical.freePage(stack_page);
+        return err;
+    };
+    proc.registerRegion(pid, USER_STACK_BASE, 1) catch |err| {
         mm.paging.unmapPage(USER_STACK_BASE) catch {};
         mm.physical.freePage(stack_page);
         return mapProcRegisterError(err);
@@ -172,7 +185,7 @@ fn entryInsideExecutableSegment(image: parse.Image) bool {
     return false;
 }
 
-fn mapSegment(segment: parse.Segment) Error!void {
+fn mapSegmentForProcess(pid: proc.Pid, segment: parse.Segment) Error!void {
     try validateUserSegment(segment);
 
     const segment_start = toUsize(segment.virtual_address) orelse return error.InvalidUserImage;
@@ -180,10 +193,6 @@ fn mapSegment(segment: parse.Segment) Error!void {
     const raw_end = checkedAdd(segment_start, memory_size) orelse return error.InvalidUserImage;
     const start = alignBackward(segment_start, PAGE_SIZE);
     const end = alignForward(raw_end, PAGE_SIZE);
-
-    proc.registerCurrentRegion(start, (end - start) / PAGE_SIZE) catch |err| {
-        return mapProcRegisterError(err);
-    };
 
     var addr = start;
     var mapped: usize = 0;
@@ -202,6 +211,11 @@ fn mapSegment(segment: parse.Segment) Error!void {
             return err;
         };
     }
+
+    proc.registerRegion(pid, start, (end - start) / PAGE_SIZE) catch |err| {
+        rollbackPartialSegment(start, mapped);
+        return mapProcRegisterError(err);
+    };
 }
 
 fn rollbackPartialSegment(start: usize, mapped: usize) void {

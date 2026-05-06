@@ -217,7 +217,10 @@ allocation, child exit state, `wait4` status reporting, and one-shot reaping.
 The exec slice adds `execve_load`, covering side-effect-free validation of the
 initramfs `/exec-ok` ELF image through the exec loader path and close-on-exec
 descriptor cleanup. `execve_argv_stack` covers bounded argv/envp copy-in and
-the initial stack shape. The QEMU init path also exercises the successful
+the initial stack shape. `spawn_child_image` covers the in-kernel preparation
+path for future `posix_spawn`: loading `/exec-ok` for a child PID while keeping
+the parent's region registry unchanged, then releasing the child's regions.
+The QEMU init path also exercises the successful
 user-mode transition with non-null argv/envp: `/init` emits
 `[ZIGIX:INIT:START]`, execs `/exec-ok`, and the replacement image emits
 `[ZIGIX:INIT:OK]`. The same userspace smoke binaries compile against

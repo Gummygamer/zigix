@@ -23,7 +23,7 @@ rejected.
 | 7     | ELF64 static loader                  | done         | `[ZIGIX:ELF:OK]` |
 | 8     | User mode + init                     | done         | `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 9     | File descriptors and basic Unix I/O  | done         | `[ZIGIX:TEST:PASS:syscall_fd_table]`, `[ZIGIX:TEST:PASS:syscall_pipe]` |
-| 10    | `exec` and process lifecycle         | in progress  | `[ZIGIX:TEST:PASS:process_lifecycle]`, `[ZIGIX:TEST:PASS:process_address_space]`, `[ZIGIX:TEST:PASS:execve_load]`, `[ZIGIX:TEST:PASS:execve_argv_stack]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
+| 10    | `exec` and process lifecycle         | in progress  | `[ZIGIX:TEST:PASS:process_lifecycle]`, `[ZIGIX:TEST:PASS:process_address_space]`, `[ZIGIX:TEST:PASS:spawn_child_image]`, `[ZIGIX:TEST:PASS:execve_load]`, `[ZIGIX:TEST:PASS:execve_argv_stack]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 11–15 | Userspace expansion                  | pending      | per-phase markers TBD |
 
 ## Phase 0 — Toolchain and smoke-test skeleton ✅
@@ -225,6 +225,14 @@ userspace phases.
   range. `MAX_PROCESS_REGIONS = 16` is enough for the current smoke binaries
   but will need a real VMA structure before posix_spawn can give a child its
   own pages independently of the parent.
+- [x] Child-targeted user image ownership: the process table now exposes
+  explicit-PID region registration/draining in addition to the current-process
+  wrappers, and the ELF loader can map a static user image while registering
+  PT_LOAD + stack pages against a child PID. The `spawn_child_image` kernel
+  test verifies the parent region list stays empty, the child owns the loaded
+  regions, and child release drains/unmaps those regions. This is still a
+  preparation path, not runnable `posix_spawn`, because the active paging
+  model still has one shared address space.
 - [ ] `fork` is deferred. The current single-address-space paging design makes
   Unix fork semantics misleading without per-process address spaces or
   copy-on-write; prefer `posix_spawn` as the next process-creation slice unless
@@ -276,14 +284,12 @@ The next thing to do, concretely:
 1. Source `.env`, then run `ci/local.sh` to confirm the Phase 10 smoke
    still passes.
 2. Read the Phase 10 notes above.
-3. Continue Phase 10 by designing a `posix_spawn`-style path. The
-   per-process region registry (`proc.registerCurrentRegion` /
-   `drainCurrentRegions`) is now in place — the next step is for the spawn
-   path to register a child PID's regions separately from the parent's,
-   instead of treating the current process as the implicit owner of every
-   user mapping. This still needs either separate page tables per process or
-   a region-based copy-on-write story before it can run two userspaces
-   concurrently.
+3. Continue Phase 10 from the `spawn_child_image` slice. The loader can now
+   register a child PID's image and stack regions separately from the parent,
+   but the pages still enter the single active page table. The next design
+   decision is whether to introduce per-process page tables now or add a
+   narrowly-scoped spawn handoff that replaces the current image with a child
+   image before true concurrent userspaces exist.
 4. Add blocking pipe semantics after the scheduler/process lifecycle work gives
    the kernel something to block and wake.
 5. Decide how writable files should fit the current read-only initramfs/memfs

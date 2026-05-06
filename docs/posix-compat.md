@@ -20,6 +20,7 @@ Update this file whenever syscall or POSIX semantics change.
 | `waitpid` | partial | userspace wrapper over `wait4`; blocking deferred | `process_lifecycle`, `process_wait_nohang` |
 | `wait4`  | partial | reaps exited children; `WNOHANG`; blocking waits return `EAGAIN` for now | `process_lifecycle`, `process_wait_nohang` |
 | `execve` | partial | static ELF path; bounded `argv`/`envp`; auxv deferred | `execve_load`, `execve_argv_stack` |
+| `posix_spawn` | missing | child PID image ownership exists in-kernel; no runnable spawn API yet | `spawn_child_image` |
 | `fork`   | missing | deferred; prefer `posix_spawn` until per-process address spaces exist | none  |
 | `mmap`   | missing | planned for Phase 13+                      | none  |
 | signals  | missing | planned for Phase 13+                      | none  |

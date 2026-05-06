@@ -6,6 +6,7 @@ const arch = @import("arch");
 const serial = arch.serial;
 
 const elf = @import("elf");
+const fs = @import("fs");
 const mm = @import("mm");
 const proc = @import("proc");
 const syscall = @import("syscall");
@@ -66,6 +67,11 @@ pub const TEST_process_wait_nohang = testing.Test{
 pub const TEST_process_address_space = testing.Test{
     .name = "process_address_space",
     .run = processAddressSpace,
+};
+
+pub const TEST_spawn_child_image = testing.Test{
+    .name = "spawn_child_image",
+    .run = spawnChildImage,
 };
 
 pub const TEST_execve_load = testing.Test{
@@ -384,6 +390,40 @@ fn processAddressSpace() testing.TestError!void {
 
     if (proc.drainCurrentRegions(&buffer) != proc.MAX_PROCESS_REGIONS) return error.RegionRegistryFinalDrainCountWrong;
     if (proc.currentRegionCount() != 0) return error.RegionRegistryFinalNotDrained;
+}
+
+fn spawnChildImage() testing.TestError!void {
+    if (proc.currentRegionCount() != 0) return error.SpawnParentRegionRegistryDirty;
+
+    const child = try proc.spawnChild(proc.currentPid());
+    errdefer {
+        elf.loader.releaseProcessPages(child);
+        _ = proc.markExited(child, 1);
+        _ = syscall.dispatch.invoke(syscall.numbers.wait4, child, 0, 0, 0, 0, 0);
+    }
+    const inode = fs.vfs.lookup("/exec-ok") catch return error.SpawnImageMissing;
+
+    var segments: [8]elf.parse.Segment = undefined;
+    const arg0 = "/exec-ok";
+    const arg1 = "spawn-test";
+    const env0 = "ZIGIX_SPAWN=1";
+    const argv = [_][]const u8{ arg0, arg1 };
+    const envp = [_][]const u8{env0};
+    const image = try elf.loader.loadStaticUserForProcess(child, inode.data, &segments, .{
+        .argv = &argv,
+        .envp = &envp,
+    });
+    if (image.entry == 0 or image.stack_top == 0) return error.SpawnImageLoadInvalid;
+    if (proc.currentRegionCount() != 0) return error.SpawnLoadRegisteredParentRegion;
+    if (proc.regionCount(child) == 0) return error.SpawnLoadDidNotRegisterChildRegions;
+
+    elf.loader.releaseProcessPages(child);
+    if (proc.regionCount(child) != 0) return error.SpawnReleaseLeftChildRegions;
+    if (proc.currentRegionCount() != 0) return error.SpawnReleaseChangedParentRegions;
+
+    if (!proc.markExited(child, 0)) return error.SpawnChildExitFailed;
+    const waited = syscall.dispatch.invoke(syscall.numbers.wait4, child, 0, 0, 0, 0, 0);
+    if (waited != child) return error.SpawnChildReapFailed;
 }
 
 fn execveLoad() testing.TestError!void {

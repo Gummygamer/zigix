@@ -57,8 +57,12 @@ pub fn currentPid() Pid {
 }
 
 pub fn registerCurrentRegion(virtual_start: usize, page_count: usize) Error!void {
+    return registerRegion(current_pid, virtual_start, page_count);
+}
+
+pub fn registerRegion(pid: Pid, virtual_start: usize, page_count: usize) Error!void {
     if (page_count == 0) return error.InvalidArgument;
-    const proc = find(current_pid) orelse return error.NoProcess;
+    const proc = find(pid) orelse return error.NoProcess;
     if (proc.region_count >= proc.regions.len) return error.RegionTableFull;
     proc.regions[proc.region_count] = .{
         .virtual_start = virtual_start,
@@ -68,12 +72,20 @@ pub fn registerCurrentRegion(virtual_start: usize, page_count: usize) Error!void
 }
 
 pub fn currentRegionCount() usize {
-    const proc = find(current_pid) orelse return 0;
+    return regionCount(current_pid);
+}
+
+pub fn regionCount(pid: Pid) usize {
+    const proc = find(pid) orelse return 0;
     return proc.region_count;
 }
 
 pub fn drainCurrentRegions(out: []Region) usize {
-    const proc = find(current_pid) orelse return 0;
+    return drainRegions(current_pid, out);
+}
+
+pub fn drainRegions(pid: Pid, out: []Region) usize {
+    const proc = find(pid) orelse return 0;
     const count = proc.region_count;
     var index: usize = 0;
     while (index < count and index < out.len) : (index += 1) {
