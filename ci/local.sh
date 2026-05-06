@@ -141,7 +141,7 @@ run "smoke-parser-accepts-phase9" bash -c '
 run "smoke-parser-accepts-phase10" bash -c '
   tmp=$(mktemp)
   trap "rm -f $tmp" EXIT
-  printf "[ZIGIX:BOOT:START]\n[ZIGIX:TOOLCHAIN:bun-zig=0.15.2]\n[ZIGIX:TEST:PASS:process_lifecycle]\n[ZIGIX:TEST:PASS:process_wait_nohang]\n[ZIGIX:TEST:PASS:process_address_space]\n[ZIGIX:TEST:PASS:process_page_tables]\n[ZIGIX:TEST:PASS:spawn_child_image]\n[ZIGIX:TEST:PASS:posix_spawn_handoff]\n[ZIGIX:TEST:PASS:execve_load]\n[ZIGIX:TEST:PASS:execve_argv_stack]\n[ZIGIX:BOOT:OK]\n[ZIGIX:INIT:START]\n[ZIGIX:INIT:OK]\n" > "$tmp"
+  printf "[ZIGIX:BOOT:START]\n[ZIGIX:TOOLCHAIN:bun-zig=0.15.2]\n[ZIGIX:TEST:PASS:process_lifecycle]\n[ZIGIX:TEST:PASS:process_wait_nohang]\n[ZIGIX:TEST:PASS:process_address_space]\n[ZIGIX:TEST:PASS:process_page_tables]\n[ZIGIX:TEST:PASS:process_scheduler_groundwork]\n[ZIGIX:TEST:PASS:spawn_child_image]\n[ZIGIX:TEST:PASS:posix_spawn_handoff]\n[ZIGIX:TEST:PASS:execve_load]\n[ZIGIX:TEST:PASS:execve_argv_stack]\n[ZIGIX:BOOT:OK]\n[ZIGIX:INIT:START]\n[ZIGIX:INIT:OK]\n" > "$tmp"
   tools/qemu/smoke_test.py "$tmp" --phase phase10
 '
 

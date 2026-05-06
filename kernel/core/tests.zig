@@ -74,6 +74,11 @@ pub const TEST_process_page_tables = testing.Test{
     .run = processPageTables,
 };
 
+pub const TEST_process_scheduler_groundwork = testing.Test{
+    .name = "process_scheduler_groundwork",
+    .run = processSchedulerGroundwork,
+};
+
 pub const TEST_spawn_child_image = testing.Test{
     .name = "spawn_child_image",
     .run = spawnChildImage,
@@ -433,6 +438,52 @@ fn processPageTables() testing.TestError!void {
     if (!proc.markExited(child, 0)) return error.ProcessPageTableChildExitFailed;
     const waited = syscall.dispatch.invoke(syscall.numbers.wait4, child, 0, 0, 0, 0, 0);
     if (waited != child) return error.ProcessPageTableChildReapFailed;
+}
+
+fn processSchedulerGroundwork() testing.TestError!void {
+    const parent = proc.currentPid();
+    const parent_space = mm.paging.activeAddressSpace();
+    if (proc.runState(parent) != .running) return error.ProcessParentNotRunning;
+
+    const child = try proc.spawnChild(parent);
+    errdefer {
+        if (proc.currentPid() != parent) {
+            proc.switchTo(parent) catch {};
+        }
+        _ = proc.markExited(child, 1);
+        _ = syscall.dispatch.invoke(syscall.numbers.wait4, child, 0, 0, 0, 0, 0);
+    }
+
+    if (proc.runState(child) != .runnable) return error.ProcessChildNotRunnable;
+    const child_stack_top = proc.kernelStackTop(child) orelse return error.ProcessChildKernelStackMissing;
+    if (child_stack_top % mm.physical.PAGE_SIZE != 0) return error.ProcessChildKernelStackUnaligned;
+
+    const child_space = proc.addressSpace(child) orelse return error.ProcessMissingAddressSpace;
+    if (child_space.pml4 == parent_space.pml4) return error.ProcessChildAddressSpaceShared;
+
+    try proc.block(child);
+    if (proc.runState(child) != .blocked) return error.ProcessChildNotBlocked;
+    if (proc.switchTo(child) != error.NoProcess) return error.ProcessSwitchedToBlockedChild;
+
+    try proc.wake(child);
+    if (proc.runState(child) != .runnable) return error.ProcessChildNotWoken;
+
+    try proc.switchTo(child);
+    if (proc.currentPid() != child) return error.ProcessSwitchDidNotUpdateCurrent;
+    if (proc.runState(parent) != .runnable) return error.ProcessParentNotRunnable;
+    if (proc.runState(child) != .running) return error.ProcessChildNotRunning;
+    if (mm.paging.activeAddressSpace().pml4 != child_space.pml4) return error.ProcessSwitchWrongAddressSpace;
+
+    try proc.switchTo(parent);
+    if (proc.currentPid() != parent) return error.ProcessSwitchBackFailed;
+    if (proc.runState(parent) != .running) return error.ProcessParentNotRunning;
+    if (proc.runState(child) != .runnable) return error.ProcessChildNotRunnable;
+    if (mm.paging.activeAddressSpace().pml4 != parent_space.pml4) return error.ProcessSwitchBackWrongAddressSpace;
+
+    if (!proc.markExited(child, 0)) return error.ProcessSchedulerChildExitFailed;
+    const waited = syscall.dispatch.invoke(syscall.numbers.wait4, child, 0, 0, 0, 0, 0);
+    if (waited != child) return error.ProcessSchedulerChildReapFailed;
+    if (proc.runState(child) != null) return error.ProcessSchedulerChildSurvivedReap;
 }
 
 fn spawnChildImage() testing.TestError!void {

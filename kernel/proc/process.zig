@@ -4,6 +4,7 @@ const mm = @import("mm");
 
 pub const MAX_PROCESSES: usize = 16;
 pub const MAX_PROCESS_REGIONS: usize = 16;
+pub const KERNEL_STACK_PAGES: usize = 1;
 
 pub const Pid = u32;
 
@@ -25,18 +26,31 @@ pub const Region = struct {
     page_count: usize,
 };
 
-const State = enum {
+pub const RunState = enum {
     free,
+    runnable,
     running,
+    blocked,
     exited,
 };
 
+const KernelStack = struct {
+    base: usize = 0,
+    page_count: usize = 0,
+    owned: bool = false,
+
+    fn top(self: KernelStack) usize {
+        return self.base + self.page_count * mm.physical.PAGE_SIZE;
+    }
+};
+
 const Process = struct {
-    state: State = .free,
+    state: RunState = .free,
     pid: Pid = 0,
     parent: ?Pid = null,
     exit_status: u8 = 0,
     address_space: mm.paging.AddressSpace = .{ .pml4 = 0 },
+    kernel_stack: KernelStack = .{},
     regions: [MAX_PROCESS_REGIONS]Region = [_]Region{.{ .virtual_start = 0, .page_count = 0 }} ** MAX_PROCESS_REGIONS,
     region_count: usize = 0,
 };
@@ -54,6 +68,7 @@ pub fn init() void {
         .pid = init_pid,
         .parent = null,
         .address_space = mm.paging.activeAddressSpace(),
+        .kernel_stack = .{ .owned = false },
     };
     current_pid = init_pid;
 }
@@ -67,15 +82,55 @@ pub fn currentAddressSpace() mm.paging.AddressSpace {
 }
 
 pub fn switchTo(pid: Pid) Error!void {
-    const process = find(pid) orelse return error.NoProcess;
-    if (process.state != .running) return error.NoProcess;
+    if (pid == current_pid) {
+        const current = find(pid) orelse return error.NoProcess;
+        if (current.state != .running) return error.NoProcess;
+        return;
+    }
+
+    const next = find(pid) orelse return error.NoProcess;
+    if (next.state != .runnable) return error.NoProcess;
+
+    const previous = find(current_pid) orelse return error.NoProcess;
+    if (previous.state == .running) previous.state = .runnable;
+
+    next.state = .running;
     current_pid = pid;
-    mm.paging.switchAddressSpace(process.address_space);
+    mm.paging.switchAddressSpace(next.address_space);
 }
 
 pub fn addressSpace(pid: Pid) ?mm.paging.AddressSpace {
     const proc = find(pid) orelse return null;
     return proc.address_space;
+}
+
+pub fn runState(pid: Pid) ?RunState {
+    const proc = find(pid) orelse return null;
+    return proc.state;
+}
+
+pub fn kernelStackTop(pid: Pid) ?usize {
+    const proc = find(pid) orelse return null;
+    if (proc.kernel_stack.page_count == 0) return null;
+    return proc.kernel_stack.top();
+}
+
+pub fn block(pid: Pid) Error!void {
+    const proc = find(pid) orelse return error.NoProcess;
+    switch (proc.state) {
+        .runnable, .running => proc.state = .blocked,
+        .blocked => {},
+        .free, .exited => return error.NoProcess,
+    }
+}
+
+pub fn wake(pid: Pid) Error!void {
+    const proc = find(pid) orelse return error.NoProcess;
+    switch (proc.state) {
+        .blocked => proc.state = .runnable,
+        .runnable, .running => {},
+        .free, .exited => return error.NoProcess,
+    }
 }
 
 pub fn registerCurrentRegion(virtual_start: usize, page_count: usize) Error!void {
@@ -125,12 +180,16 @@ pub fn spawnChild(parent: Pid) Error!Pid {
         error.Unsupported => error.Unsupported,
         error.AlreadyMapped, error.NotAligned, error.NotMapped => error.InvalidArgument,
     };
+    errdefer mm.paging.destroyUserAddressSpace(address_space);
+
+    const kernel_stack = allocateKernelStack() catch return error.OutOfMemory;
     const pid = allocatePid();
     slot.* = .{
-        .state = .running,
+        .state = .runnable,
         .pid = pid,
         .parent = parent,
         .address_space = address_space,
+        .kernel_stack = kernel_stack,
     };
     return pid;
 }
@@ -165,6 +224,7 @@ fn releaseProcessResources(proc: *Process) void {
     if (proc.address_space.pml4 != 0) {
         mm.paging.destroyUserAddressSpace(proc.address_space);
     }
+    releaseKernelStack(proc.kernel_stack);
 }
 
 fn findExitedChild(parent: Pid, requested_pid: i64) ?*Process {
@@ -203,6 +263,23 @@ fn freeSlot() ?*Process {
         if (proc.state == .free) return proc;
     }
     return null;
+}
+
+fn allocateKernelStack() Error!KernelStack {
+    const base = mm.physical.allocPage() catch return error.OutOfMemory;
+    return .{
+        .base = base,
+        .page_count = KERNEL_STACK_PAGES,
+        .owned = true,
+    };
+}
+
+fn releaseKernelStack(stack: KernelStack) void {
+    if (!stack.owned) return;
+    var index: usize = 0;
+    while (index < stack.page_count) : (index += 1) {
+        mm.physical.freePage(stack.base + index * mm.physical.PAGE_SIZE);
+    }
 }
 
 fn allocatePid() Pid {

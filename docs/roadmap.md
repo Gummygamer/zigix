@@ -23,7 +23,7 @@ rejected.
 | 7     | ELF64 static loader                  | done         | `[ZIGIX:ELF:OK]` |
 | 8     | User mode + init                     | done         | `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 9     | File descriptors and basic Unix I/O  | done         | `[ZIGIX:TEST:PASS:syscall_fd_table]`, `[ZIGIX:TEST:PASS:syscall_pipe]` |
-| 10    | `exec` and process lifecycle         | in progress  | `[ZIGIX:TEST:PASS:process_lifecycle]`, `[ZIGIX:TEST:PASS:process_address_space]`, `[ZIGIX:TEST:PASS:process_page_tables]`, `[ZIGIX:TEST:PASS:spawn_child_image]`, `[ZIGIX:TEST:PASS:posix_spawn_handoff]`, `[ZIGIX:TEST:PASS:execve_load]`, `[ZIGIX:TEST:PASS:execve_argv_stack]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
+| 10    | `exec` and process lifecycle         | in progress  | `[ZIGIX:TEST:PASS:process_lifecycle]`, `[ZIGIX:TEST:PASS:process_address_space]`, `[ZIGIX:TEST:PASS:process_page_tables]`, `[ZIGIX:TEST:PASS:process_scheduler_groundwork]`, `[ZIGIX:TEST:PASS:spawn_child_image]`, `[ZIGIX:TEST:PASS:posix_spawn_handoff]`, `[ZIGIX:TEST:PASS:execve_load]`, `[ZIGIX:TEST:PASS:execve_argv_stack]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 11–15 | Userspace expansion                  | pending      | per-phase markers TBD |
 
 ## Phase 0 — Toolchain and smoke-test skeleton ✅
@@ -247,6 +247,11 @@ userspace phases.
   switches the current process to that child, and enters ring 3. This is a
   one-way handoff until scheduling can resume the parent; the `/init` smoke path
   now uses it to run `/exec-ok`, which emits `[ZIGIX:INIT:OK]`.
+- [x] Scheduler groundwork: process entries now distinguish `runnable`,
+  `running`, `blocked`, and `exited`, spawned children own a kernel stack, and
+  `switchTo` moves CR3 while making the previous current process runnable
+  again. The `process_scheduler_groundwork` test locks down the parent
+  resumption state model that the next `posix_spawn` slice will use.
 - [ ] `fork` is deferred. Unix fork semantics are still misleading without
   copy-on-write and a scheduler that can run separate address spaces; prefer
   `posix_spawn` as the next process-creation slice.
@@ -297,11 +302,10 @@ The next thing to do, concretely:
 1. Source `.env`, then run `ci/local.sh` to confirm the Phase 10 smoke
    still passes.
 2. Read the Phase 10 notes above.
-3. Continue Phase 10 from the narrow `posix_spawn` handoff. The next concrete
-   process slice is scheduler groundwork: make the kernel's rules for process
-   run state, kernel stack ownership, CR3 switching, and parent resumption
-   explicit enough that `posix_spawn` can return a child PID to the parent
-   instead of being a one-way handoff.
+3. Continue Phase 10 from the scheduler groundwork. The next concrete process
+   slice is a minimal scheduler entry path that can save the parent's kernel
+   continuation, run the child, then resume the parent so `posix_spawn` can
+   return the child PID instead of being a one-way handoff.
 4. Add blocking pipe semantics after the scheduler/process lifecycle work gives
    the kernel something to block and wake.
 5. Decide how writable files should fit the current read-only initramfs/memfs
