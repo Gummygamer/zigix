@@ -17,9 +17,9 @@ Update this file whenever syscall or POSIX semantics change.
 | `dup`    | partial | lowest free fd; clears close-on-exec       | `syscall_fd_table`, `syscall_pipe` |
 | `_exit`  | partial | userspace wrapper; `exit_group` aliases raw `exit` for now | userspace init smoke |
 | `exit`   | partial | raw syscall exits QEMU through debug port  | userspace init smoke |
-| `waitpid` | partial | userspace wrapper over nonblocking `wait4` reaping | `process_lifecycle` |
-| `wait4`  | partial | reaps already-exited children; blocking deferred | `process_lifecycle` |
-| `execve` | partial | static ELF path only; `argv`/`envp` must be `NULL` | `execve_load` |
+| `waitpid` | partial | userspace wrapper over `wait4`; blocking deferred | `process_lifecycle`, `process_wait_nohang` |
+| `wait4`  | partial | reaps exited children; `WNOHANG`; blocking waits return `EAGAIN` for now | `process_lifecycle`, `process_wait_nohang` |
+| `execve` | partial | static ELF path; bounded `argv`/`envp`; auxv deferred | `execve_load`, `execve_argv_stack` |
 | `fork`   | missing | deferred; prefer `posix_spawn` until per-process address spaces exist | none  |
 | `mmap`   | missing | planned for Phase 13+                      | none  |
 | signals  | missing | planned for Phase 13+                      | none  |

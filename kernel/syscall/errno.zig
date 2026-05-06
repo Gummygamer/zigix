@@ -8,6 +8,7 @@ pub const BIG: i64 = 7;
 pub const NOEXEC: i64 = 8;
 pub const BADF: i64 = 9;
 pub const CHILD: i64 = 10;
+pub const AGAIN: i64 = 11;
 pub const FAULT: i64 = 14;
 pub const INVAL: i64 = 22;
 pub const NOSYS: i64 = 38;

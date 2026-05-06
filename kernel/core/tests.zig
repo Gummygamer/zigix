@@ -58,6 +58,11 @@ pub const TEST_process_lifecycle = testing.Test{
     .run = processLifecycle,
 };
 
+pub const TEST_process_wait_nohang = testing.Test{
+    .name = "process_wait_nohang",
+    .run = processWaitNohang,
+};
+
 pub const TEST_execve_load = testing.Test{
     .name = "execve_load",
     .run = execveLoad,
@@ -310,6 +315,28 @@ fn processLifecycle() testing.TestError!void {
 
     if (syscall.dispatch.invoke(syscall.numbers.wait4, child, @intFromPtr(&status), 0, 0, 0, 0) != -syscall.errno.CHILD) {
         return error.ProcessDoubleWaitSucceeded;
+    }
+}
+
+fn processWaitNohang() testing.TestError!void {
+    const child = try proc.spawnChild(proc.currentPid());
+
+    var status: i32 = 0x5555;
+    const nohang = syscall.dispatch.invoke(syscall.numbers.wait4, child, @intFromPtr(&status), proc.WNOHANG, 0, 0, 0);
+    if (nohang != 0) return error.ProcessWaitNohangFailed;
+    if (status != 0x5555) return error.ProcessWaitNohangWroteStatus;
+
+    const would_block = syscall.dispatch.invoke(syscall.numbers.wait4, child, @intFromPtr(&status), 0, 0, 0, 0);
+    if (would_block != -syscall.errno.AGAIN) return error.ProcessWaitWouldBlockWrongErrno;
+    if (status != 0x5555) return error.ProcessWaitWouldBlockWroteStatus;
+
+    if (!proc.markExited(child, 11)) return error.ProcessExitFailed;
+    const waited = syscall.dispatch.invoke(syscall.numbers.wait4, child, @intFromPtr(&status), proc.WNOHANG, 0, 0, 0);
+    if (waited != child) return error.ProcessWaitFailed;
+    if (status != 11 << 8) return error.ProcessWaitStatusWrong;
+
+    if (syscall.dispatch.invoke(syscall.numbers.wait4, @bitCast(@as(i64, -1)), @intFromPtr(&status), proc.WNOHANG, 0, 0, 0) != -syscall.errno.CHILD) {
+        return error.ProcessWaitNoChildrenWrongErrno;
     }
 }
 

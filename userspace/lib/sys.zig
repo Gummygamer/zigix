@@ -18,6 +18,8 @@ pub const SYS_exit: u64 = 60;
 pub const SYS_wait4: u64 = 61;
 pub const SYS_exit_group: u64 = 231;
 
+pub const WNOHANG: u64 = 1;
+
 pub fn read(fd: u64, buf: []u8) i64 {
     return syscall3(SYS_read, fd, @intFromPtr(buf.ptr), buf.len);
 }

@@ -7,8 +7,11 @@ pub const Pid = u32;
 pub const Error = error{
     InvalidArgument,
     NoChild,
+    WouldBlock,
     TableFull,
 };
+
+pub const WNOHANG: u64 = 1;
 
 const State = enum {
     free,
@@ -64,10 +67,16 @@ pub fn markExited(pid: Pid, status: u64) bool {
 }
 
 pub fn wait4(caller: Pid, requested_pid: i64, status_out: ?*i32, options: u64) Error!Pid {
-    if (options != 0) return error.InvalidArgument;
+    if ((options & ~WNOHANG) != 0) return error.InvalidArgument;
     if (requested_pid < -1 or requested_pid == 0) return error.InvalidArgument;
 
-    const child = findExitedChild(caller, requested_pid) orelse return error.NoChild;
+    const child = findExitedChild(caller, requested_pid) orelse {
+        if (hasChild(caller, requested_pid)) {
+            if ((options & WNOHANG) != 0) return 0;
+            return error.WouldBlock;
+        }
+        return error.NoChild;
+    };
     const waited_pid = child.pid;
     if (status_out) |out| out.* = exitStatusWord(child.exit_status);
     child.* = .{};
@@ -82,6 +91,16 @@ fn findExitedChild(parent: Pid, requested_pid: i64) ?*Process {
         return proc;
     }
     return null;
+}
+
+fn hasChild(parent: Pid, requested_pid: i64) bool {
+    for (&table) |*proc| {
+        if (proc.state == .free) continue;
+        if (proc.parent != parent) continue;
+        if (requested_pid > 0 and proc.pid != @as(Pid, @intCast(requested_pid))) continue;
+        return true;
+    }
+    return false;
 }
 
 fn exitStatusWord(status: u8) i32 {

@@ -34,6 +34,7 @@ The syscall layer uses Linux errno numbers for the exposed set:
 | `ENOEXEC` | 8 |
 | `EBADF` | 9 |
 | `ECHILD` | 10 |
+| `EAGAIN` | 11 |
 | `EFAULT` | 14 |
 | `ENOTDIR` | 20 |
 | `EISDIR` | 21 |
@@ -146,11 +147,15 @@ Errors: `E2BIG`, `EFAULT`, `EINVAL`, `ENOENT`, `ENOEXEC`, VFS-mapped errors.
 ### `wait4`
 
 Reaps an already-exited child process. Phase 10 supports `pid > 0` and
-`pid == -1`, `options == 0`, and `rusage == NULL`. The status word uses the
-normal Unix exited-process layout: low eight bits of the exit code shifted left
-by eight. Blocking wait semantics remain future scheduler work.
+`pid == -1`, `options == 0` or `WNOHANG = 1`, and `rusage == NULL`. The status
+word uses the normal Unix exited-process layout: low eight bits of the exit
+code shifted left by eight.
 
-Errors: `ECHILD`, `EINVAL`, `EFAULT`.
+If a matching child exists but has not exited, `WNOHANG` returns `0` and leaves
+the status word untouched. A blocking wait that would need to park the caller
+returns `EAGAIN` until scheduler wakeups exist.
+
+Errors: `EAGAIN`, `ECHILD`, `EINVAL`, `EFAULT`.
 
 The shared Zig userspace syscall module also exposes `waitpid(pid, status,
 options)` as a wrapper over `wait4(pid, status, options, NULL)`.
@@ -206,6 +211,8 @@ and `EPIPE` after all read endpoints close.
 
 The first Phase 10 lifecycle slice adds `process_lifecycle`, covering PID
 allocation, child exit state, `wait4` status reporting, and one-shot reaping.
+`process_wait_nohang` covers live-child waits, `WNOHANG`, and the temporary
+`EAGAIN` behavior for waits that would block.
 
 The exec slice adds `execve_load`, covering side-effect-free validation of the
 initramfs `/exec-ok` ELF image through the exec loader path and close-on-exec

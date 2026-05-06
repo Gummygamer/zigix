@@ -215,6 +215,9 @@ userspace phases.
 - [x] Shared userspace syscall wrappers for the Phase 10 smoke binaries,
   including `_exit` via the Linux `exit_group` number and `waitpid` as a
   wrapper over `wait4(pid, status, options, NULL)`.
+- [x] `wait4` now distinguishes no child from a live child, supports
+  `WNOHANG`, and returns `EAGAIN` for waits that would block until the
+  scheduler can park and wake processes.
 - [ ] `fork` is deferred. The current single-address-space paging design makes
   Unix fork semantics misleading without per-process address spaces or
   copy-on-write; prefer `posix_spawn` as the next process-creation slice unless
@@ -266,9 +269,9 @@ The next thing to do, concretely:
 1. Source `.env`, then run `ci/local.sh` to confirm the Phase 10 smoke
    still passes.
 2. Read the Phase 10 notes above.
-3. Continue Phase 10 by deciding whether `fork` or `posix_spawn` fits the
-   current paging design. The current single-address-space design still points
-   toward `posix_spawn` unless paging ownership changes first.
+3. Continue Phase 10 by designing a `posix_spawn`-style path that can validate
+   and launch a new image without promising Unix `fork` semantics on the
+   current single-address-space paging model.
 4. Add blocking pipe semantics after the scheduler/process lifecycle work gives
    the kernel something to block and wake.
 5. Decide how writable files should fit the current read-only initramfs/memfs
