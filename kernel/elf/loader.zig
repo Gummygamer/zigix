@@ -4,15 +4,18 @@ const std = @import("std");
 
 const arch = @import("arch");
 const mm = @import("mm");
+const proc = @import("proc");
 const parse = @import("parse.zig");
 
 pub const Error = parse.Error || error{
     EntryOutsideLoadSegments,
     InvalidUserImage,
     OutOfMemory,
+    NoProcess,
     NotAligned,
     AlreadyMapped,
     NotMapped,
+    RegionTableFull,
     Unsupported,
     UserStackOverflow,
 };
@@ -79,9 +82,39 @@ pub fn replaceStaticUser(image: []const u8, segment_buffer: []parse.Segment) Err
 pub fn replaceStaticUserWithStack(image: []const u8, segment_buffer: []parse.Segment, stack: StackSpec) Error!UserImage {
     try validateStackSpec(stack);
     const plan = try planStaticUser(image, segment_buffer);
-    unmapUserRange(USER_IMAGE_BASE, USER_IMAGE_LIMIT);
-    unmapUserRange(USER_STACK_BASE, USER_STACK_BASE + USER_STACK_SIZE);
+    releaseCurrentProcessPages();
     return loadPlannedUser(image, plan, stack);
+}
+
+fn mapProcRegisterError(err: proc.Error) Error {
+    return switch (err) {
+        error.NoProcess => error.NoProcess,
+        error.RegionTableFull => error.RegionTableFull,
+        else => error.InvalidUserImage,
+    };
+}
+
+pub fn releaseCurrentProcessPages() void {
+    var drained: [proc.MAX_PROCESS_REGIONS]proc.Region = undefined;
+    while (true) {
+        const count = proc.drainCurrentRegions(&drained);
+        if (count == 0) return;
+        var index: usize = 0;
+        while (index < count) : (index += 1) {
+            unmapRegion(drained[index]);
+        }
+    }
+}
+
+fn unmapRegion(region: proc.Region) void {
+    var page_index: usize = 0;
+    while (page_index < region.page_count) : (page_index += 1) {
+        const addr = region.virtual_start + page_index * PAGE_SIZE;
+        const mapping = mm.paging.walk(addr) orelse continue;
+        if (mapping.page_size != PAGE_SIZE) continue;
+        mm.paging.unmapPage(addr) catch continue;
+        mm.physical.freePage(mapping.physical);
+    }
 }
 
 pub fn buildInitialStackForTest(stack: []u8, stack_base: usize, spec: StackSpec) Error!usize {
@@ -102,6 +135,11 @@ fn loadPlannedUser(image: []const u8, plan: UserLoadPlan, stack_spec: StackSpec)
     const stack_page = try mm.physical.allocPage();
     @memset(pageBytes(stack_page), 0);
     try mm.paging.mapUserPage(USER_STACK_BASE, stack_page, true);
+    proc.registerCurrentRegion(USER_STACK_BASE, 1) catch |err| {
+        mm.paging.unmapPage(USER_STACK_BASE) catch {};
+        mm.physical.freePage(stack_page);
+        return mapProcRegisterError(err);
+    };
     const stack_bytes = userStackBytes();
     const stack_top = try buildInitialStack(stack_bytes, USER_STACK_BASE, stack_spec);
 
@@ -109,16 +147,6 @@ fn loadPlannedUser(image: []const u8, plan: UserLoadPlan, stack_spec: StackSpec)
         .entry = plan.entry,
         .stack_top = stack_top,
     };
-}
-
-fn unmapUserRange(start: usize, end: usize) void {
-    var addr = start;
-    while (addr < end) : (addr += PAGE_SIZE) {
-        const mapping = mm.paging.walk(addr) orelse continue;
-        if (mapping.page_size != PAGE_SIZE) continue;
-        mm.paging.unmapPage(addr) catch continue;
-        mm.physical.freePage(mapping.physical);
-    }
 }
 
 pub fn selfTestStaticLoaderMarker() bool {
@@ -153,11 +181,40 @@ fn mapSegment(segment: parse.Segment) Error!void {
     const start = alignBackward(segment_start, PAGE_SIZE);
     const end = alignForward(raw_end, PAGE_SIZE);
 
+    proc.registerCurrentRegion(start, (end - start) / PAGE_SIZE) catch |err| {
+        return mapProcRegisterError(err);
+    };
+
     var addr = start;
-    while (addr < end) : (addr += PAGE_SIZE) {
-        const page = try mm.physical.allocPage();
+    var mapped: usize = 0;
+    while (addr < end) : ({
+        addr += PAGE_SIZE;
+        mapped += 1;
+    }) {
+        const page = mm.physical.allocPage() catch |err| {
+            rollbackPartialSegment(start, mapped);
+            return err;
+        };
         @memset(pageBytes(page), 0);
-        try mm.paging.mapUserPage(addr, page, true);
+        mm.paging.mapUserPage(addr, page, true) catch |err| {
+            mm.physical.freePage(page);
+            rollbackPartialSegment(start, mapped);
+            return err;
+        };
+    }
+}
+
+fn rollbackPartialSegment(start: usize, mapped: usize) void {
+    var addr = start;
+    var index: usize = 0;
+    while (index < mapped) : ({
+        addr += PAGE_SIZE;
+        index += 1;
+    }) {
+        const mapping = mm.paging.walk(addr) orelse continue;
+        if (mapping.page_size != PAGE_SIZE) continue;
+        mm.paging.unmapPage(addr) catch continue;
+        mm.physical.freePage(mapping.physical);
     }
 }
 

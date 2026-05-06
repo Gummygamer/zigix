@@ -2,6 +2,7 @@
 
 pub const PERM: i64 = 1;
 pub const NOENT: i64 = 2;
+pub const SRCH: i64 = 3;
 pub const INTR: i64 = 4;
 pub const IO: i64 = 5;
 pub const BIG: i64 = 7;

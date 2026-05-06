@@ -63,6 +63,11 @@ pub const TEST_process_wait_nohang = testing.Test{
     .run = processWaitNohang,
 };
 
+pub const TEST_process_address_space = testing.Test{
+    .name = "process_address_space",
+    .run = processAddressSpace,
+};
+
 pub const TEST_execve_load = testing.Test{
     .name = "execve_load",
     .run = execveLoad,
@@ -338,6 +343,47 @@ fn processWaitNohang() testing.TestError!void {
     if (syscall.dispatch.invoke(syscall.numbers.wait4, @bitCast(@as(i64, -1)), @intFromPtr(&status), proc.WNOHANG, 0, 0, 0) != -syscall.errno.CHILD) {
         return error.ProcessWaitNoChildrenWrongErrno;
     }
+}
+
+fn processAddressSpace() testing.TestError!void {
+    if (proc.currentRegionCount() != 0) return error.RegionRegistryNotEmpty;
+
+    try proc.registerCurrentRegion(0x4000_0000, 4);
+    try proc.registerCurrentRegion(0x4001_0000, 8);
+    try proc.registerCurrentRegion(0x4002_0000, 1);
+    if (proc.currentRegionCount() != 3) return error.RegionRegistryCountWrong;
+
+    var buffer: [proc.MAX_PROCESS_REGIONS]proc.Region = undefined;
+    const drained = proc.drainCurrentRegions(&buffer);
+    if (drained != 3) return error.RegionRegistryDrainCountWrong;
+    if (buffer[0].virtual_start != 0x4000_0000 or buffer[0].page_count != 4) {
+        return error.RegionRegistryDrainOrderWrong;
+    }
+    if (buffer[2].virtual_start != 0x4002_0000 or buffer[2].page_count != 1) {
+        return error.RegionRegistryDrainOrderWrong;
+    }
+    if (proc.currentRegionCount() != 0) return error.RegionRegistryNotDrained;
+
+    if (proc.registerCurrentRegion(0x5000_0000, 0)) |_| {
+        return error.RegionRegistryAcceptedZero;
+    } else |err| {
+        if (err != error.InvalidArgument) return error.RegionRegistryWrongZeroError;
+    }
+
+    var index: usize = 0;
+    while (index < proc.MAX_PROCESS_REGIONS) : (index += 1) {
+        try proc.registerCurrentRegion(0x5000_0000 + index * 0x10_0000, 1);
+    }
+    if (proc.currentRegionCount() != proc.MAX_PROCESS_REGIONS) return error.RegionRegistryFillFailed;
+
+    if (proc.registerCurrentRegion(0x6000_0000, 1)) |_| {
+        return error.RegionRegistryAcceptedOverflow;
+    } else |err| {
+        if (err != error.RegionTableFull) return error.RegionRegistryWrongOverflowError;
+    }
+
+    if (proc.drainCurrentRegions(&buffer) != proc.MAX_PROCESS_REGIONS) return error.RegionRegistryFinalDrainCountWrong;
+    if (proc.currentRegionCount() != 0) return error.RegionRegistryFinalNotDrained;
 }
 
 fn execveLoad() testing.TestError!void {

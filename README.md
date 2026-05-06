@@ -29,8 +29,11 @@ freestanding ring-3 `/init`, emits `[ZIGIX:INIT:START]` and
 process-table/PID lifecycle slice with `wait4` reaping coverage. The initial
 `execve` slice replaces the current static ELF image, applies close-on-exec
 descriptor cleanup, builds a bounded argv/envp initial stack, and is exercised
-by `/init` execing `/exec-ok`; auxv and explicit per-process address-space
-ownership are still future work.
+by `/init` execing `/exec-ok`. Each process now owns its user address space
+explicitly via a per-PID region registry; `execve` drains the calling
+process's regions and unmaps them instead of scanning a fixed range. auxv and
+a posix_spawn-style child-spawn path that registers regions per child PID are
+still future work.
 
 See [`docs/roadmap.md`](docs/roadmap.md) for the phased plan and
 [`docs/bun-zig-toolchain.md`](docs/bun-zig-toolchain.md) for the toolchain

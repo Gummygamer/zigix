@@ -23,7 +23,7 @@ rejected.
 | 7     | ELF64 static loader                  | done         | `[ZIGIX:ELF:OK]` |
 | 8     | User mode + init                     | done         | `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 9     | File descriptors and basic Unix I/O  | done         | `[ZIGIX:TEST:PASS:syscall_fd_table]`, `[ZIGIX:TEST:PASS:syscall_pipe]` |
-| 10    | `exec` and process lifecycle         | in progress  | `[ZIGIX:TEST:PASS:process_lifecycle]`, `[ZIGIX:TEST:PASS:execve_load]`, `[ZIGIX:TEST:PASS:execve_argv_stack]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
+| 10    | `exec` and process lifecycle         | in progress  | `[ZIGIX:TEST:PASS:process_lifecycle]`, `[ZIGIX:TEST:PASS:process_address_space]`, `[ZIGIX:TEST:PASS:execve_load]`, `[ZIGIX:TEST:PASS:execve_argv_stack]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 11–15 | Userspace expansion                  | pending      | per-phase markers TBD |
 
 ## Phase 0 — Toolchain and smoke-test skeleton ✅
@@ -218,6 +218,13 @@ userspace phases.
 - [x] `wait4` now distinguishes no child from a live child, supports
   `WNOHANG`, and returns `EAGAIN` for waits that would block until the
   scheduler can park and wake processes.
+- [x] Per-process address-space ownership: each process tracks the user
+  regions it owns (PT_LOAD segments + stack) in its process-table entry.
+  `execve` drains the current process's region list and unmaps each contained
+  page instead of scanning the fixed `USER_IMAGE_BASE..USER_IMAGE_LIMIT`
+  range. `MAX_PROCESS_REGIONS = 16` is enough for the current smoke binaries
+  but will need a real VMA structure before posix_spawn can give a child its
+  own pages independently of the parent.
 - [ ] `fork` is deferred. The current single-address-space paging design makes
   Unix fork semantics misleading without per-process address spaces or
   copy-on-write; prefer `posix_spawn` as the next process-creation slice unless
@@ -269,9 +276,14 @@ The next thing to do, concretely:
 1. Source `.env`, then run `ci/local.sh` to confirm the Phase 10 smoke
    still passes.
 2. Read the Phase 10 notes above.
-3. Continue Phase 10 by designing a `posix_spawn`-style path that can validate
-   and launch a new image without promising Unix `fork` semantics on the
-   current single-address-space paging model.
+3. Continue Phase 10 by designing a `posix_spawn`-style path. The
+   per-process region registry (`proc.registerCurrentRegion` /
+   `drainCurrentRegions`) is now in place — the next step is for the spawn
+   path to register a child PID's regions separately from the parent's,
+   instead of treating the current process as the implicit owner of every
+   user mapping. This still needs either separate page tables per process or
+   a region-based copy-on-write story before it can run two userspaces
+   concurrently.
 4. Add blocking pipe semantics after the scheduler/process lifecycle work gives
    the kernel something to block and wake.
 5. Decide how writable files should fit the current read-only initramfs/memfs

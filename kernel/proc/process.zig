@@ -1,17 +1,25 @@
 //! Minimal process table for Phase 10 lifecycle work.
 
 pub const MAX_PROCESSES: usize = 16;
+pub const MAX_PROCESS_REGIONS: usize = 16;
 
 pub const Pid = u32;
 
 pub const Error = error{
     InvalidArgument,
     NoChild,
+    NoProcess,
+    RegionTableFull,
     WouldBlock,
     TableFull,
 };
 
 pub const WNOHANG: u64 = 1;
+
+pub const Region = struct {
+    virtual_start: usize,
+    page_count: usize,
+};
 
 const State = enum {
     free,
@@ -24,6 +32,8 @@ const Process = struct {
     pid: Pid = 0,
     parent: ?Pid = null,
     exit_status: u8 = 0,
+    regions: [MAX_PROCESS_REGIONS]Region = [_]Region{.{ .virtual_start = 0, .page_count = 0 }} ** MAX_PROCESS_REGIONS,
+    region_count: usize = 0,
 };
 
 var table: [MAX_PROCESSES]Process = [_]Process{.{}} ** MAX_PROCESSES;
@@ -44,6 +54,33 @@ pub fn init() void {
 
 pub fn currentPid() Pid {
     return current_pid;
+}
+
+pub fn registerCurrentRegion(virtual_start: usize, page_count: usize) Error!void {
+    if (page_count == 0) return error.InvalidArgument;
+    const proc = find(current_pid) orelse return error.NoProcess;
+    if (proc.region_count >= proc.regions.len) return error.RegionTableFull;
+    proc.regions[proc.region_count] = .{
+        .virtual_start = virtual_start,
+        .page_count = page_count,
+    };
+    proc.region_count += 1;
+}
+
+pub fn currentRegionCount() usize {
+    const proc = find(current_pid) orelse return 0;
+    return proc.region_count;
+}
+
+pub fn drainCurrentRegions(out: []Region) usize {
+    const proc = find(current_pid) orelse return 0;
+    const count = proc.region_count;
+    var index: usize = 0;
+    while (index < count and index < out.len) : (index += 1) {
+        out[index] = proc.regions[index];
+    }
+    proc.region_count = 0;
+    return index;
 }
 
 pub fn spawnChild(parent: Pid) Error!Pid {

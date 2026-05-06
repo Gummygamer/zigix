@@ -417,7 +417,8 @@ fn sysWait4(pid_arg: u64, status_ptr: u64, options: u64, rusage_ptr: u64) i64 {
             error.InvalidArgument => errno.INVAL,
             error.NoChild => errno.CHILD,
             error.WouldBlock => errno.AGAIN,
-            error.TableFull => errno.NFILE,
+            error.NoProcess => errno.SRCH,
+            error.RegionTableFull, error.TableFull => errno.NFILE,
         });
     };
     return @intCast(waited);
@@ -627,8 +628,9 @@ fn mapFsError(err: fs.vfs.Error) i64 {
 
 fn mapExecError(err: elf.loader.Error) i64 {
     return errno.fail(switch (err) {
-        error.OutOfMemory => errno.NFILE,
+        error.OutOfMemory, error.RegionTableFull => errno.NFILE,
         error.UserStackOverflow => errno.BIG,
+        error.NoProcess => errno.SRCH,
         error.NotAligned, error.AlreadyMapped, error.NotMapped, error.Unsupported => errno.INVAL,
         else => errno.NOEXEC,
     });

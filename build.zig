@@ -138,6 +138,7 @@ pub fn build(b: *std.Build) void {
         .imports = &.{
             .{ .name = "arch", .module = arch_module },
             .{ .name = "mm", .module = mm_module },
+            .{ .name = "proc", .module = proc_module },
         },
     });
 
