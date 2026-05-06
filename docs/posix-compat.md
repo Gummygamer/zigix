@@ -13,7 +13,7 @@ Update this file whenever syscall or POSIX semantics change.
 | `close`  | partial | current process fd table only              | `syscall_vfs`, `syscall_fd_table`, `syscall_pipe` |
 | `lseek`  | partial | VFS files only                             | `syscall_vfs`, `syscall_fd_table` |
 | `stat`   | partial | compact Zigix stat layout                  | `syscall_vfs` |
-| `pipe`   | partial | bounded buffer; blocking deferred          | `syscall_pipe` |
+| `pipe`   | partial | bounded buffer; first park/wake path for empty reads and full writes; scheduler run queues still pending | `syscall_pipe`, `syscall_pipe_blocking` |
 | `dup`    | partial | lowest free fd; clears close-on-exec       | `syscall_fd_table`, `syscall_pipe` |
 | `_exit`  | partial | userspace wrapper; `exit_group` aliases raw `exit` for now | userspace init smoke |
 | `exit`   | partial | raw syscall exits QEMU through debug port  | userspace init smoke |

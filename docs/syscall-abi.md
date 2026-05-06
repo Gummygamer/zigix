@@ -109,10 +109,15 @@ Pipe descriptors are process-owned fd table entries and may be duplicated with
 `dup`; duplicated endpoints share one bounded 4096-byte kernel buffer.
 
 Phase 9 implements immediate read/write behavior only. Reads from an empty
-pipe return `0`, and writes to a full pipe may return a short count. Blocking
-and wakeups require scheduler/process lifecycle work and remain future work.
+pipe with no write endpoints return `0`. Empty reads with live writers and
+full writes park the current process in a pipe wait queue and wake on the
+opposite endpoint when data or space becomes available. Until general
+scheduler run queues exist, these parked syscalls return `EAGAIN` so kernel
+tests can drive the state transition explicitly. Writes larger than remaining
+capacity may still return a short count.
 
-Errors: `EFAULT`, `ENFILE`, `EPIPE` on later writes after all read ends close.
+Errors: `EFAULT`, `ENFILE`, `EAGAIN`, `EPIPE` on later writes after all read
+ends close.
 
 ### `dup`
 
@@ -231,7 +236,9 @@ close-on-exec metadata.
 
 The pipe slice adds `syscall_pipe`, covering `pipe`, read/write round-trips,
 endpoint access checks, duplicated write endpoints, EOF after writers close,
-and `EPIPE` after all read endpoints close.
+and `EPIPE` after all read endpoints close. `syscall_pipe_blocking` covers the
+first process-aware pipe wait queues: empty reads and full writes park the
+caller, then wake when the opposite endpoint writes or reads.
 
 The first Phase 10 lifecycle slice adds `process_lifecycle`, covering PID
 allocation, child exit state, `wait4` status reporting, and one-shot reaping.

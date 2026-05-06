@@ -13,6 +13,7 @@ const syscall = @import("syscall");
 const testing = @import("testing.zig");
 
 var exec_stack_test_buffer: [512]u8 = [_]u8{0} ** 512;
+var pipe_fill_test_buffer: [syscall.dispatch.PIPE_BUFFER_SIZE]u8 = [_]u8{'x'} ** syscall.dispatch.PIPE_BUFFER_SIZE;
 
 pub const TEST_kernel_smoke = testing.Test{
     .name = "kernel_smoke",
@@ -52,6 +53,11 @@ pub const TEST_syscall_fd_table = testing.Test{
 pub const TEST_syscall_pipe = testing.Test{
     .name = "syscall_pipe",
     .run = syscallPipe,
+};
+
+pub const TEST_syscall_pipe_blocking = testing.Test{
+    .name = "syscall_pipe_blocking",
+    .run = syscallPipeBlocking,
 };
 
 pub const TEST_process_lifecycle = testing.Test{
@@ -331,6 +337,84 @@ fn syscallPipe() testing.TestError!void {
     if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(closed_read_fds[1]), 0, 0, 0, 0, 0) != 0) {
         return error.SyscallPipeCloseFailed;
     }
+}
+
+fn syscallPipeBlocking() testing.TestError!void {
+    const parent = proc.currentPid();
+    const child = try proc.spawnChild(parent);
+    var child_reaped = false;
+    var fds: [2]i32 = undefined;
+    var fds_open = false;
+
+    errdefer {
+        if (proc.currentPid() != parent) {
+            proc.switchTo(parent) catch {};
+        }
+        if (fds_open) {
+            _ = syscall.dispatch.invoke(syscall.numbers.close, @intCast(fds[0]), 0, 0, 0, 0, 0);
+            _ = syscall.dispatch.invoke(syscall.numbers.close, @intCast(fds[1]), 0, 0, 0, 0, 0);
+        }
+        if (!child_reaped and proc.runState(child) != null) {
+            _ = proc.markExited(child, 1);
+            _ = syscall.dispatch.invoke(syscall.numbers.wait4, child, 0, 0, 0, 0, 0);
+        }
+    }
+
+    if (syscall.dispatch.invoke(syscall.numbers.pipe, @intFromPtr(&fds), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallPipeFailed;
+    }
+    fds_open = true;
+
+    try proc.switchTo(child);
+    var one: [1]u8 = undefined;
+    if (syscall.dispatch.invoke(syscall.numbers.read, @intCast(fds[0]), @intFromPtr(&one), one.len, 0, 0, 0) != -syscall.errno.AGAIN) {
+        return error.SyscallPipeEmptyReadDidNotBlock;
+    }
+    if (proc.runState(child) != .blocked) return error.SyscallPipeReaderNotBlocked;
+
+    try proc.switchTo(parent);
+    const msg = "r";
+    if (syscall.dispatch.invoke(syscall.numbers.write, @intCast(fds[1]), @intFromPtr(msg.ptr), msg.len, 0, 0, 0) != msg.len) {
+        return error.SyscallPipeWakeWriteFailed;
+    }
+    if (proc.runState(child) != .runnable) return error.SyscallPipeReaderNotWoken;
+
+    try proc.switchTo(child);
+    if (syscall.dispatch.invoke(syscall.numbers.read, @intCast(fds[0]), @intFromPtr(&one), one.len, 0, 0, 0) != one.len) {
+        return error.SyscallPipeReadAfterWakeFailed;
+    }
+    if (one[0] != 'r') return error.SyscallPipeReadAfterWakeWrongData;
+
+    try proc.switchTo(parent);
+    if (syscall.dispatch.invoke(syscall.numbers.write, @intCast(fds[1]), @intFromPtr(&pipe_fill_test_buffer), pipe_fill_test_buffer.len, 0, 0, 0) != pipe_fill_test_buffer.len) {
+        return error.SyscallPipeFillFailed;
+    }
+
+    try proc.switchTo(child);
+    const tail = "!";
+    if (syscall.dispatch.invoke(syscall.numbers.write, @intCast(fds[1]), @intFromPtr(tail.ptr), tail.len, 0, 0, 0) != -syscall.errno.AGAIN) {
+        return error.SyscallPipeFullWriteDidNotBlock;
+    }
+    if (proc.runState(child) != .blocked) return error.SyscallPipeWriterNotBlocked;
+
+    try proc.switchTo(parent);
+    if (syscall.dispatch.invoke(syscall.numbers.read, @intCast(fds[0]), @intFromPtr(&one), one.len, 0, 0, 0) != one.len) {
+        return error.SyscallPipeDrainFailed;
+    }
+    if (proc.runState(child) != .runnable) return error.SyscallPipeWriterNotWoken;
+
+    if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(fds[0]), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallPipeCloseFailed;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(fds[1]), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallPipeCloseFailed;
+    }
+    fds_open = false;
+
+    if (!proc.markExited(child, 0)) return error.SyscallPipeBlockingChildExitFailed;
+    const waited = syscall.dispatch.invoke(syscall.numbers.wait4, child, 0, 0, 0, 0, 0);
+    if (waited != child) return error.SyscallPipeBlockingChildReapFailed;
+    child_reaped = true;
 }
 
 fn processLifecycle() testing.TestError!void {

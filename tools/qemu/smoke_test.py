@@ -53,6 +53,7 @@ PHASES: dict[str, list[str]] = {
     ],
     "phase10": [
         "[ZIGIX:BOOT:OK]",
+        "[ZIGIX:TEST:PASS:syscall_pipe_blocking]",
         "[ZIGIX:TEST:PASS:process_lifecycle]",
         "[ZIGIX:TEST:PASS:process_wait_nohang]",
         "[ZIGIX:TEST:PASS:process_wait_blocking]",

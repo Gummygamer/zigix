@@ -20,7 +20,8 @@ const MAX_PATH_BYTES: usize = 256;
 const MAX_EXEC_ARGS: usize = 8;
 const MAX_EXEC_ENVS: usize = 8;
 const MAX_EXEC_STRING_BYTES: usize = 256;
-const PIPE_BUFFER_SIZE: usize = 4096;
+pub const PIPE_BUFFER_SIZE: usize = 4096;
+const MAX_PIPE_WAITERS: usize = proc.MAX_PROCESSES;
 
 pub const O_CLOEXEC: u64 = 0o2000000;
 
@@ -54,6 +55,10 @@ const Pipe = struct {
     len: usize = 0,
     read_refs: usize = 0,
     write_refs: usize = 0,
+    read_waiters: [MAX_PIPE_WAITERS]proc.Pid = [_]proc.Pid{0} ** MAX_PIPE_WAITERS,
+    read_waiter_count: usize = 0,
+    write_waiters: [MAX_PIPE_WAITERS]proc.Pid = [_]proc.Pid{0} ** MAX_PIPE_WAITERS,
+    write_waiter_count: usize = 0,
 
     fn read(self: *Pipe, dest: []u8) usize {
         const amount = @min(dest.len, self.len);
@@ -77,6 +82,53 @@ const Pipe = struct {
         }
         self.len += amount;
         return amount;
+    }
+
+    fn full(self: *const Pipe) bool {
+        return self.len == self.buffer.len;
+    }
+
+    fn empty(self: *const Pipe) bool {
+        return self.len == 0;
+    }
+
+    fn parkReader(self: *Pipe, pid: proc.Pid) proc.Error!void {
+        try self.addWaiter(&self.read_waiters, &self.read_waiter_count, pid);
+        try proc.block(pid);
+    }
+
+    fn parkWriter(self: *Pipe, pid: proc.Pid) proc.Error!void {
+        try self.addWaiter(&self.write_waiters, &self.write_waiter_count, pid);
+        try proc.block(pid);
+    }
+
+    fn wakeReaders(self: *Pipe) void {
+        self.wakeWaiters(&self.read_waiters, &self.read_waiter_count);
+    }
+
+    fn wakeWriters(self: *Pipe) void {
+        self.wakeWaiters(&self.write_waiters, &self.write_waiter_count);
+    }
+
+    fn addWaiter(self: *Pipe, waiters: *[MAX_PIPE_WAITERS]proc.Pid, count: *usize, pid: proc.Pid) proc.Error!void {
+        _ = self;
+        var index: usize = 0;
+        while (index < count.*) : (index += 1) {
+            if (waiters[index] == pid) return;
+        }
+        if (count.* >= waiters.len) return error.TableFull;
+        waiters[count.*] = pid;
+        count.* += 1;
+    }
+
+    fn wakeWaiters(self: *Pipe, waiters: *[MAX_PIPE_WAITERS]proc.Pid, count: *usize) void {
+        _ = self;
+        var index: usize = 0;
+        while (index < count.*) : (index += 1) {
+            proc.wake(waiters[index]) catch {};
+            waiters[index] = 0;
+        }
+        count.* = 0;
     }
 };
 
@@ -275,7 +327,16 @@ fn sysRead(fd_arg: u64, buf_ptr: u64, len: u64) i64 {
         .stdin => 0,
         .stdout, .stderr => return errno.fail(errno.BADF),
         .file => |open_file| open_file.file.read(dest) catch |err| return mapFsError(err),
-        .pipe_read => |pipe| pipe.read(dest),
+        .pipe_read => |pipe| {
+            if (pipe.empty()) {
+                if (pipe.write_refs == 0) return 0;
+                pipe.parkReader(proc.currentPid()) catch return errno.fail(errno.AGAIN);
+                return errno.fail(errno.AGAIN);
+            }
+            const amount = pipe.read(dest);
+            if (amount > 0) pipe.wakeWriters();
+            return @intCast(amount);
+        },
         .pipe_write => return errno.fail(errno.BADF),
     };
     return @intCast(amount);
@@ -294,7 +355,13 @@ fn sysWrite(fd_arg: u64, buf_ptr: u64, len: u64) i64 {
         },
         .pipe_write => |pipe| {
             if (pipe.read_refs == 0) return errno.fail(errno.PIPE);
-            return @intCast(pipe.write(bytes));
+            if (pipe.full()) {
+                pipe.parkWriter(proc.currentPid()) catch return errno.fail(errno.AGAIN);
+                return errno.fail(errno.AGAIN);
+            }
+            const amount = pipe.write(bytes);
+            if (amount > 0) pipe.wakeReaders();
+            return @intCast(amount);
         },
         .stdin, .file, .pipe_read => return errno.fail(errno.BADF),
     }
@@ -552,11 +619,13 @@ fn releaseOpenFile(open_file: *OpenFile) void {
 
 fn releasePipeRead(pipe: *Pipe) void {
     if (pipe.read_refs > 0) pipe.read_refs -= 1;
+    if (pipe.read_refs == 0) pipe.wakeWriters();
     releasePipeIfUnused(pipe);
 }
 
 fn releasePipeWrite(pipe: *Pipe) void {
     if (pipe.write_refs > 0) pipe.write_refs -= 1;
+    if (pipe.write_refs == 0) pipe.wakeReaders();
     releasePipeIfUnused(pipe);
 }
 

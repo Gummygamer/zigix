@@ -38,8 +38,10 @@ regions against the child PID, and return that PID to the parent. A blocking
 `wait4`/`waitpid` now parks the parent, enters the spawned child image, resumes
 on child exit, and reaps the child, with QEMU coverage via
 `process_page_tables`, `spawn_child_image`, `posix_spawn_handoff`, and
-`process_wait_blocking`. General scheduler run queues and auxv are still future
-work.
+`process_wait_blocking`. Pipes now have the first process-aware park/wake path
+for empty reads and full writes, with `EAGAIN` still surfacing until general
+scheduler run queues can deschedule and resume callers transparently. General
+scheduler run queues and auxv are still future work.
 
 See [`docs/roadmap.md`](docs/roadmap.md) for the phased plan and
 [`docs/bun-zig-toolchain.md`](docs/bun-zig-toolchain.md) for the toolchain
