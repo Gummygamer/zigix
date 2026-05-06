@@ -15,7 +15,10 @@ Update this file whenever syscall or POSIX semantics change.
 | `stat`   | partial | compact Zigix stat layout                  | `syscall_vfs` |
 | `pipe`   | partial | bounded buffer; blocking deferred          | `syscall_pipe` |
 | `dup`    | partial | lowest free fd; clears close-on-exec       | `syscall_fd_table`, `syscall_pipe` |
-| `exit`   | partial | exits QEMU through debug port              | userspace init smoke |
+| `_exit`  | partial | userspace wrapper; `exit_group` aliases raw `exit` for now | userspace init smoke |
+| `exit`   | partial | raw syscall exits QEMU through debug port  | userspace init smoke |
+| `waitpid` | partial | userspace wrapper over nonblocking `wait4` reaping | `process_lifecycle` |
+| `wait4`  | partial | reaps already-exited children; blocking deferred | `process_lifecycle` |
 | `execve` | partial | static ELF path only; `argv`/`envp` must be `NULL` | `execve_load` |
 | `fork`   | missing | deferred; prefer `posix_spawn` until per-process address spaces exist | none  |
 | `mmap`   | missing | planned for Phase 13+                      | none  |

@@ -174,6 +174,7 @@ pub fn invoke(num: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64, a
         numbers.execve => sysExecve(arg0, arg1, arg2),
         numbers.exit => sysExit(arg0),
         numbers.wait4 => sysWait4(arg0, arg1, arg2, arg3),
+        numbers.exit_group => sysExit(arg0),
         else => errno.fail(errno.NOSYS),
     };
 }

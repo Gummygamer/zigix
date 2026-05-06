@@ -207,11 +207,13 @@ userspace phases.
   stack construction and explicit process address-space ownership remain
   future work. The QEMU smoke path now proves the success case by having
   `/init` exec `/exec-ok`, which emits `[ZIGIX:INIT:OK]`.
+- [x] Shared userspace syscall wrappers for the Phase 10 smoke binaries,
+  including `_exit` via the Linux `exit_group` number and `waitpid` as a
+  wrapper over `wait4(pid, status, options, NULL)`.
 - [ ] `fork` is deferred. The current single-address-space paging design makes
   Unix fork semantics misleading without per-process address spaces or
   copy-on-write; prefer `posix_spawn` as the next process-creation slice unless
-  paging ownership changes first. `waitpid` and `_exit` still need syscall
-  aliases/wrappers.
+  paging ownership changes first.
 - [ ] Real blocking `waitpid`/`wait4` once scheduling can park and wake
   processes.
 

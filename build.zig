@@ -225,6 +225,20 @@ pub fn build(b: *std.Build) void {
     );
 
     // ── Phase 8/10 userspace init + initramfs ────────────────────────────
+    const userspace_sys_module = b.createModule(.{
+        .root_source_file = b.path("userspace/lib/sys.zig"),
+        .target = kernel_target,
+        .optimize = optimize,
+        .code_model = .small,
+        .red_zone = false,
+        .pic = false,
+        .stack_protector = false,
+        .stack_check = false,
+        .single_threaded = true,
+        .strip = false,
+        .omit_frame_pointer = false,
+    });
+
     const init_module = b.createModule(.{
         .root_source_file = b.path("userspace/init/main.zig"),
         .target = kernel_target,
@@ -237,6 +251,9 @@ pub fn build(b: *std.Build) void {
         .single_threaded = true,
         .strip = false,
         .omit_frame_pointer = false,
+        .imports = &.{
+            .{ .name = "zigix_sys", .module = userspace_sys_module },
+        },
     });
 
     const init_exe = b.addExecutable(.{
@@ -262,6 +279,9 @@ pub fn build(b: *std.Build) void {
         .single_threaded = true,
         .strip = false,
         .omit_frame_pointer = false,
+        .imports = &.{
+            .{ .name = "zigix_sys", .module = userspace_sys_module },
+        },
     });
 
     const exec_ok_exe = b.addExecutable(.{

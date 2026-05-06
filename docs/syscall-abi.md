@@ -58,6 +58,7 @@ The syscall layer uses Linux errno numbers for the exposed set:
 | 59 | `execve` | `int execve(const char *path, char *const argv[], char *const envp[])` |
 | 60 | `exit` | `void exit(int status)` |
 | 61 | `wait4` | `pid_t wait4(pid_t pid, int *wstatus, int options, void *rusage)` |
+| 231 | `exit_group` | `void exit_group(int status)` |
 
 ### `read`
 
@@ -138,6 +139,15 @@ by eight. Blocking wait semantics remain future scheduler work.
 
 Errors: `ECHILD`, `EINVAL`, `EFAULT`.
 
+The shared Zig userspace syscall module also exposes `waitpid(pid, status,
+options)` as a wrapper over `wait4(pid, status, options, NULL)`.
+
+### `exit` / `exit_group`
+
+Both numbers currently terminate the only running user process and end the QEMU
+smoke run through the debug-exit port. `exit_group` exists as a compatibility
+alias for libc-style `_exit` wrappers before real thread groups exist.
+
 ### `stat` / `fstat`
 
 Fills `struct zigix_stat`, a small fixed layout used until libc work decides
@@ -188,4 +198,6 @@ The exec slice adds `execve_load`, covering side-effect-free validation of the
 initramfs `/exec-ok` ELF image through the exec loader path and close-on-exec
 descriptor cleanup. The QEMU init path also exercises the successful user-mode
 transition: `/init` emits `[ZIGIX:INIT:START]`, execs `/exec-ok`, and the
-replacement image emits `[ZIGIX:INIT:OK]`.
+replacement image emits `[ZIGIX:INIT:OK]`. The same userspace smoke binaries
+compile against `userspace/lib/sys.zig`, which provides the current `_exit`
+and `waitpid` compatibility wrappers.

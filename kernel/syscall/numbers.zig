@@ -15,3 +15,4 @@ pub const dup: u64 = 32;
 pub const execve: u64 = 59;
 pub const exit: u64 = 60;
 pub const wait4: u64 = 61;
+pub const exit_group: u64 = 231;
