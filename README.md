@@ -20,31 +20,21 @@ OS with:
 
 ## Status
 
-Phase 10 is in progress: Zigix boots under QEMU, initializes memory management
+Phase 11 is complete: Zigix boots under QEMU, initializes memory management
 and interrupts, mounts a Multiboot-loaded initramfs on a small VFS/memfs root,
 installs syscall ABI v0, validates a static ELF64 load plan, maps and enters a
-freestanding ring-3 `/init`, emits `[ZIGIX:INIT:START]` and
-`[ZIGIX:INIT:OK]` through syscalls, and has per-process descriptor tables,
-`dup`, close-on-exec metadata, basic pipe read/write coverage, and the first
-process-table/PID lifecycle slice with `wait4` reaping coverage. The initial
-`execve` slice replaces the current static ELF image, applies close-on-exec
-descriptor cleanup, builds a bounded argv/envp initial stack, and is exercised
-by `/init` execing `/exec-ok`. Each process now owns its user address space
-explicitly via a per-PID region registry; `execve` drains the calling
-process's regions and unmaps them instead of scanning a fixed range. The first
-posix_spawn-style path can allocate a separate child page-table root, load a
-static child image in that target address space, register PT_LOAD + stack
-regions against the child PID, and return that PID to the parent. A blocking
-`wait4`/`waitpid` now parks the parent, enters the spawned child image, resumes
-on child exit, and reaps the child, with QEMU coverage via
-`process_page_tables`, `spawn_child_image`, `posix_spawn_handoff`, and
-`process_wait_blocking`. Spawned children now inherit a per-PID descriptor
-table lazily, so child close-on-exec and close operations no longer mutate the
-parent table; `process_fd_tables` covers that isolation. Pipes now have the
-first process-aware park/wake path for empty reads and full writes, with
-`EAGAIN` still surfacing until syscall blocking paths can resume callers
-transparently. The process table now keeps a FIFO runnable queue for
-cooperative scheduling decisions; timer-driven preemption and auxv are still
+freestanding ring-3 `/init`, and runs `/tinysh -c /exec-ok` as the first
+non-interactive shell smoke path. The Phase 11 marker is
+`[ZIGIX:TEST:PASS:tinysh_smoke]`, emitted only after `tinysh` parses the
+command, starts `/exec-ok` with `posix_spawn`, waits for it with `waitpid`, and
+observes exit status 0.
+
+The kernel has per-process descriptor tables, `dup`, close-on-exec metadata,
+basic pipe read/write coverage, process-table/PID lifecycle coverage,
+per-process address-space roots, bounded argv/envp stack construction, a
+cooperative `posix_spawn`/blocking-`wait4` handoff, process-aware pipe
+park/wake queues, and a FIFO runnable queue. Timer-driven preemption,
+transparent blocking syscall resume, `fork`, auxv, and interactive stdin are
 future work.
 
 See [`docs/roadmap.md`](docs/roadmap.md) for the phased plan and
@@ -75,7 +65,7 @@ The build entry points are intentionally thin:
 | `tools/toolchain/check-bun-zig.sh`     | Verify the Bun Zig toolchain is configured. Logs identity.       |
 | `tools/toolchain/zig-bun build check-toolchain` | Same check, via `build.zig`. Requires Bun Zig to run.   |
 | `tools/toolchain/zig-bun build host-test`       | Run host-side unit tests.                                       |
-| `tools/toolchain/zig-bun build qemu-smoke`      | Boot the kernel in QEMU and verify Phase 10 serial markers.     |
+| `tools/toolchain/zig-bun build qemu-smoke`      | Boot the kernel in QEMU and verify Phase 11 serial markers.     |
 | `ci/local.sh`                          | Run all host-side checks.                                        |
 
 QEMU smoke runs are headless and machine-readable. See

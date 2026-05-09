@@ -1,10 +1,10 @@
 //! Zigix build orchestration.
 //!
-//! Phase 10 steps:
+//! Phase 11 steps:
 //!   * `check-toolchain`     -- runs the host-side toolchain check script.
 //!   * `kernel`              -- builds zig-out/bin/zigix-kernel (multiboot1 ELF).
 //!   * `validate-kernel-elf` -- sanity-checks the ELF (32-bit ELF check, multiboot magic).
-//!   * `qemu-smoke`          -- boots the kernel headlessly and parses Phase 10 serial markers.
+//!   * `qemu-smoke`          -- boots the kernel headlessly and parses Phase 11 serial markers.
 //!   * `host-test`           -- runs host-side unit tests.
 //!
 //! IMPORTANT: invoke this build via `tools/toolchain/zig-bun build <step>`,
@@ -229,7 +229,7 @@ pub fn build(b: *std.Build) void {
         "zigix-kernel.mb",
     );
 
-    // ── Phase 8/10 userspace init + initramfs ────────────────────────────
+    // ── Phase 8/11 userspace init + initramfs ────────────────────────────
     const userspace_sys_module = b.createModule(.{
         .root_source_file = b.path("userspace/lib/sys.zig"),
         .target = kernel_target,
@@ -300,6 +300,34 @@ pub fn build(b: *std.Build) void {
 
     const install_exec_ok = b.addInstallArtifact(exec_ok_exe, .{});
 
+    const tinysh_module = b.createModule(.{
+        .root_source_file = b.path("userspace/tinysh/main.zig"),
+        .target = kernel_target,
+        .optimize = optimize,
+        .code_model = .small,
+        .red_zone = false,
+        .pic = false,
+        .stack_protector = false,
+        .stack_check = false,
+        .single_threaded = true,
+        .strip = false,
+        .omit_frame_pointer = false,
+        .imports = &.{
+            .{ .name = "zigix_sys", .module = userspace_sys_module },
+        },
+    });
+
+    const tinysh_exe = b.addExecutable(.{
+        .name = "tinysh",
+        .root_module = tinysh_module,
+        .use_llvm = true,
+        .use_lld = true,
+    });
+    tinysh_exe.setLinkerScript(b.path("userspace/init/linker.ld"));
+    tinysh_exe.entry = .{ .symbol_name = "_start" };
+
+    const install_tinysh = b.addInstallArtifact(tinysh_exe, .{});
+
     const pack_initramfs = b.addSystemCommand(&.{ "python3", "tools/mkinitramfs/pack.py" });
     const initramfs_path = pack_initramfs.addOutputFileArg("initramfs.zixr");
     pack_initramfs.addArg("--entry");
@@ -308,6 +336,9 @@ pub fn build(b: *std.Build) void {
     pack_initramfs.addArg("--entry");
     pack_initramfs.addArg("exec-ok");
     pack_initramfs.addFileArg(exec_ok_exe.getEmittedBin());
+    pack_initramfs.addArg("--entry");
+    pack_initramfs.addArg("tinysh");
+    pack_initramfs.addFileArg(tinysh_exe.getEmittedBin());
     pack_initramfs.setName("mkinitramfs");
 
     const install_initramfs = b.addInstallFileWithDir(
@@ -324,6 +355,7 @@ pub fn build(b: *std.Build) void {
     kernel_step.dependOn(&install_kernel32.step);
     kernel_step.dependOn(&install_init.step);
     kernel_step.dependOn(&install_exec_ok.step);
+    kernel_step.dependOn(&install_tinysh.step);
     kernel_step.dependOn(&install_initramfs.step);
 
     // ── check-toolchain ──────────────────────────────────────────────────
@@ -360,14 +392,14 @@ pub fn build(b: *std.Build) void {
         "tools/qemu/smoke_test.py",
         "zig-out/serial.log",
         "--phase",
-        "phase10",
+        "phase11",
     });
     smoke.setName("qemu-smoke-parse");
     smoke.step.dependOn(&qemu_run.step);
 
     const qemu_step = b.step(
         "qemu-smoke",
-        "Boot the kernel in QEMU and verify Phase 10 markers on COM1",
+        "Boot the kernel in QEMU and verify Phase 11 markers on COM1",
     );
     qemu_step.dependOn(&smoke.step);
 

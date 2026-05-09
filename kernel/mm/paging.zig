@@ -183,17 +183,20 @@ pub fn destroyUserAddressSpace(space: AddressSpace) void {
     const pml4 = pml4FromAddressSpace(space);
     const pml4e0 = pml4[0];
     if ((pml4e0 & PRESENT) != 0 and (pml4e0 & HUGE) == 0) {
-        const pdpt = tableFromEntry(pml4e0);
+        const pdpt = tableFromEntryOrNull(pml4e0) orelse {
+            physical.freePage(space.pml4);
+            return;
+        };
         var pdpt_index: usize = 1;
         while (pdpt_index < 512) : (pdpt_index += 1) {
             const pdpte = pdpt[pdpt_index];
             if ((pdpte & PRESENT) == 0 or (pdpte & HUGE) != 0) continue;
-            const pd = tableFromEntry(pdpte);
+            const pd = tableFromEntryOrNull(pdpte) orelse continue;
             var pd_index: usize = 0;
             while (pd_index < 512) : (pd_index += 1) {
                 const pde = pd[pd_index];
                 if ((pde & PRESENT) == 0 or (pde & HUGE) != 0) continue;
-                const pt = tableFromEntry(pde);
+                const pt = tableFromEntryOrNull(pde) orelse continue;
                 physical.freePage(@intFromPtr(pt));
             }
             physical.freePage(@intFromPtr(pd));
@@ -229,6 +232,12 @@ fn entryFlags(options: MapOptions) u64 {
 
 fn tableFromEntry(entry: u64) [*]u64 {
     return @ptrFromInt(@as(usize, @intCast(entry & ADDR_MASK)));
+}
+
+fn tableFromEntryOrNull(entry: u64) ?[*]u64 {
+    const addr: usize = @intCast(entry & ADDR_MASK);
+    if (addr == 0) return null;
+    return @ptrFromInt(addr);
 }
 
 fn pageBytes(addr: usize) []u8 {

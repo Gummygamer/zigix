@@ -1,4 +1,4 @@
-//! Replacement userspace image for the Phase 10 execve smoke path.
+//! Small userspace command used by exec and tinysh smoke paths.
 
 const sys = @import("zigix_sys");
 

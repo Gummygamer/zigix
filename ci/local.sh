@@ -145,6 +145,13 @@ run "smoke-parser-accepts-phase10" bash -c '
   tools/qemu/smoke_test.py "$tmp" --phase phase10
 '
 
+run "smoke-parser-accepts-phase11" bash -c '
+  tmp=$(mktemp)
+  trap "rm -f $tmp" EXIT
+  printf "[ZIGIX:BOOT:START]\n[ZIGIX:TOOLCHAIN:bun-zig=0.15.2]\n[ZIGIX:BOOT:OK]\n[ZIGIX:INIT:START]\n[ZIGIX:INIT:OK]\n[ZIGIX:TEST:PASS:tinysh_smoke]\n" > "$tmp"
+  tools/qemu/smoke_test.py "$tmp" --phase phase11
+'
+
 # 6. The validate-elf script must reject a non-ELF file (negative test).
 run "validate-elf-rejects-non-elf" bash -c '
   tmp=$(mktemp)
@@ -171,23 +178,23 @@ run "qemu-runner-fails-on-missing-kernel" bash -c '
 '
 
 # 8. If ZIGIX_BUN_ZIG is set, run toolchain check + host tests + the full
-#    kernel build + qemu smoke. This is the real Phase 10 acceptance gate.
+#    kernel build + qemu smoke. This is the real Phase 11 acceptance gate.
 if [[ -n "${ZIGIX_BUN_ZIG:-}" ]]; then
   run "check-toolchain" tools/toolchain/check-bun-zig.sh
   run "host-test" tools/toolchain/zig-bun build host-test
   run "build-kernel" tools/toolchain/zig-bun build kernel
   run "validate-kernel-elf" tools/toolchain/zig-bun build validate-kernel-elf
   if command -v qemu-system-x86_64 >/dev/null 2>&1; then
-    run "qemu-smoke-phase10" tools/toolchain/zig-bun build qemu-smoke
+    run "qemu-smoke-phase11" tools/toolchain/zig-bun build qemu-smoke
   else
-    skip "qemu-smoke-phase10" "qemu-system-x86_64 not installed"
+    skip "qemu-smoke-phase11" "qemu-system-x86_64 not installed"
   fi
 else
   skip "check-toolchain" "ZIGIX_BUN_ZIG is not set"
   skip "host-test" "ZIGIX_BUN_ZIG is not set"
   skip "build-kernel" "ZIGIX_BUN_ZIG is not set"
   skip "validate-kernel-elf" "ZIGIX_BUN_ZIG is not set"
-  skip "qemu-smoke-phase10" "ZIGIX_BUN_ZIG is not set"
+  skip "qemu-smoke-phase11" "ZIGIX_BUN_ZIG is not set"
 fi
 
 printf '\n=== summary ===\n'

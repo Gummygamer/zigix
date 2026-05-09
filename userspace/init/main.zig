@@ -3,11 +3,11 @@
 const sys = @import("zigix_sys");
 
 export fn _start() callconv(.c) noreturn {
-    const argv = [_]?[*:0]const u8{ "/exec-ok", "argv-ok", null };
-    const envp = [_]?[*:0]const u8{ "ZIGIX_PHASE=10", null };
+    const argv = [_]?[*:0]const u8{ "/tinysh", "-c", "/exec-ok", null };
+    const envp = [_]?[*:0]const u8{ "ZIGIX_PHASE=11", null };
 
     _ = sys.write(sys.STDOUT, "[ZIGIX:INIT:START]\n");
-    const pid = sys.posixSpawn("/exec-ok", @intFromPtr(&argv), @intFromPtr(&envp));
+    const pid = sys.posixSpawn("/tinysh", @intFromPtr(&argv), @intFromPtr(&envp));
     if (pid <= 0) {
         _ = sys.write(sys.STDOUT, "[ZIGIX:TEST:FAIL:posix_spawn_user:spawn]\n");
         sys._exit(1);
