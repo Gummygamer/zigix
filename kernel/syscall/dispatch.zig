@@ -354,7 +354,11 @@ fn sysRead(fd_arg: u64, buf_ptr: u64, len: u64) i64 {
 
     const descriptor = process.get(fd) orelse return errno.fail(errno.BADF);
     const amount = switch (descriptor.target) {
-        .stdin => 0,
+        .stdin => {
+            const amount = serial.read(dest);
+            if (amount == 0) return errno.fail(errno.AGAIN);
+            return @intCast(amount);
+        },
         .stdout, .stderr => return errno.fail(errno.BADF),
         .file => |open_file| open_file.file.read(dest) catch |err| return mapFsError(err),
         .pipe_read => |pipe| {

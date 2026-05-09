@@ -11,7 +11,8 @@ set -euo pipefail
 
 KERNEL="${1:-zig-out/bin/zigix-kernel}"
 INITRD="${2:-}"
-LOG="${ZIGIX_SERIAL_LOG:-zig-out/serial.log}"
+SERIAL_INPUT="${3:-${ZIGIX_SERIAL_INPUT:-}}"
+LOG="${4:-${ZIGIX_SERIAL_LOG:-zig-out/serial.log}}"
 TIMEOUT_SEC="${ZIGIX_QEMU_TIMEOUT:-30}"
 
 mkdir -p "$(dirname "$LOG")"
@@ -28,6 +29,12 @@ if [[ -n "$INITRD" && ! -f "$INITRD" ]]; then
   exit 5
 fi
 
+if [[ -n "$SERIAL_INPUT" && ! -f "$SERIAL_INPUT" ]]; then
+  printf '[zigix-qemu] serial input file not found: %s\n' "$SERIAL_INPUT" >&2
+  printf '[ZIGIX:TEST:FAIL:qemu_smoke:serial_input_not_found]\n' | tee "$LOG" >&2
+  exit 6
+fi
+
 if ! command -v qemu-system-x86_64 >/dev/null; then
   printf '[zigix-qemu] qemu-system-x86_64 not installed\n' >&2
   printf '[ZIGIX:TEST:FAIL:qemu_smoke:qemu_missing]\n' | tee "$LOG" >&2
@@ -35,29 +42,44 @@ if ! command -v qemu-system-x86_64 >/dev/null; then
 fi
 
 # Headless run with serial captured to file. `-no-reboot` so a triple
-# fault exits instead of looping. `isa-debug-exit` lets the kernel
+# fault exits instead of looping. When a serial input script is provided,
+# COM1 is attached to stdio and stdout is redirected to the serial log;
+# otherwise QEMU writes COM1 directly to the log file.
+#
+# `isa-debug-exit` lets the kernel
 # terminate QEMU cleanly: writing N to port 0xF4 makes QEMU exit with
 # status `(N << 1) | 1`. We rely on the smoke parser, not the exit code,
 # to decide pass/fail — but a clean exit lets CI finish in milliseconds
 # instead of waiting for the timeout.
 QEMU_ARGS=(
-  -nographic
   -no-reboot
   -m 128M
-  -serial "file:$LOG"
   -display none
   -device isa-debug-exit,iobase=0xf4,iosize=0x04
   -kernel "$KERNEL"
 )
+
+if [[ -n "$SERIAL_INPUT" ]]; then
+  QEMU_ARGS+=(-monitor none -serial stdio)
+else
+  QEMU_ARGS+=(-nographic -serial "file:$LOG")
+fi
 
 if [[ -n "$INITRD" ]]; then
   QEMU_ARGS+=(-initrd "$INITRD")
 fi
 
 printf '[zigix-qemu] running: qemu-system-x86_64 %s\n' "${QEMU_ARGS[*]}" >&2
+if [[ -n "$SERIAL_INPUT" ]]; then
+  printf '[zigix-qemu] serial input: %s\n' "$SERIAL_INPUT" >&2
+fi
 
 set +e
-timeout --foreground "${TIMEOUT_SEC}" qemu-system-x86_64 "${QEMU_ARGS[@]}"
+if [[ -n "$SERIAL_INPUT" ]]; then
+  timeout --foreground "${TIMEOUT_SEC}" qemu-system-x86_64 "${QEMU_ARGS[@]}" <"$SERIAL_INPUT" >"$LOG"
+else
+  timeout --foreground "${TIMEOUT_SEC}" qemu-system-x86_64 "${QEMU_ARGS[@]}"
+fi
 rc=$?
 set -e
 

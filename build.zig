@@ -5,6 +5,7 @@
 //!   * `kernel`              -- builds zig-out/bin/zigix-kernel (multiboot1 ELF).
 //!   * `validate-kernel-elf` -- sanity-checks the ELF (32-bit ELF check, multiboot magic).
 //!   * `qemu-smoke`          -- boots the kernel headlessly and parses Phase 11 serial markers.
+//!   * `qemu-smoke-scripted` -- boots with a scripted COM1 stdin fixture.
 //!   * `host-test`           -- runs host-side unit tests.
 //!
 //! IMPORTANT: invoke this build via `tools/toolchain/zig-bun build <step>`,
@@ -402,6 +403,32 @@ pub fn build(b: *std.Build) void {
         "Boot the kernel in QEMU and verify Phase 11 markers on COM1",
     );
     qemu_step.dependOn(&smoke.step);
+
+    const qemu_run_scripted = b.addSystemCommand(&.{"tools/qemu/run.sh"});
+    qemu_run_scripted.addFileArg(kernel32_path);
+    qemu_run_scripted.addFileArg(initramfs_path);
+    qemu_run_scripted.addFileArg(b.path("tests/qemu/phase12-serial-input.txt"));
+    qemu_run_scripted.addArg("zig-out/serial-scripted.log");
+    qemu_run_scripted.setName("qemu-run-scripted");
+    qemu_run_scripted.has_side_effects = true;
+    qemu_run_scripted.step.dependOn(&install_kernel32.step);
+
+    const smoke_scripted = b.addSystemCommand(&.{
+        "tools/qemu/smoke_test.py",
+        "zig-out/serial-scripted.log",
+        "--phase",
+        "phase11",
+        "--expect",
+        "[ZIGIX:TEST:PASS:syscall_stdin_console]",
+    });
+    smoke_scripted.setName("qemu-smoke-scripted-parse");
+    smoke_scripted.step.dependOn(&qemu_run_scripted.step);
+
+    const qemu_scripted_step = b.step(
+        "qemu-smoke-scripted",
+        "Boot QEMU with scripted serial input and verify Phase 12 stdin groundwork",
+    );
+    qemu_scripted_step.dependOn(&smoke_scripted.step);
 
     // ── host-test ────────────────────────────────────────────────────────
     const host_path_module = b.createModule(.{

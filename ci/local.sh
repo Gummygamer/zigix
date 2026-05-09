@@ -177,6 +177,21 @@ run "qemu-runner-fails-on-missing-kernel" bash -c '
   exit 0
 '
 
+run "qemu-runner-fails-on-missing-serial-input" bash -c '
+  tmp=$(mktemp)
+  trap "rm -f $tmp" EXIT
+  printf "kernel placeholder\n" > "$tmp"
+  out=$(tools/qemu/run.sh "$tmp" "" /nonexistent/zigix-serial-input 2>&1) && {
+    echo "qemu runner accepted a missing serial input file: $out" >&2
+    exit 1
+  }
+  rc=$?
+  case "$rc" in 6|4) ;;  # 6 = input missing, 4 = qemu missing before launch
+    *) echo "unexpected exit code $rc; output: $out" >&2; exit 1 ;;
+  esac
+  exit 0
+'
+
 # 8. If ZIGIX_BUN_ZIG is set, run toolchain check + host tests + the full
 #    kernel build + qemu smoke. This is the real Phase 11 acceptance gate.
 if [[ -n "${ZIGIX_BUN_ZIG:-}" ]]; then
@@ -186,8 +201,10 @@ if [[ -n "${ZIGIX_BUN_ZIG:-}" ]]; then
   run "validate-kernel-elf" tools/toolchain/zig-bun build validate-kernel-elf
   if command -v qemu-system-x86_64 >/dev/null 2>&1; then
     run "qemu-smoke-phase11" tools/toolchain/zig-bun build qemu-smoke
+    run "qemu-smoke-scripted-phase12-stdin" tools/toolchain/zig-bun build qemu-smoke-scripted
   else
     skip "qemu-smoke-phase11" "qemu-system-x86_64 not installed"
+    skip "qemu-smoke-scripted-phase12-stdin" "qemu-system-x86_64 not installed"
   fi
 else
   skip "check-toolchain" "ZIGIX_BUN_ZIG is not set"
@@ -195,6 +212,7 @@ else
   skip "build-kernel" "ZIGIX_BUN_ZIG is not set"
   skip "validate-kernel-elf" "ZIGIX_BUN_ZIG is not set"
   skip "qemu-smoke-phase11" "ZIGIX_BUN_ZIG is not set"
+  skip "qemu-smoke-scripted-phase12-stdin" "ZIGIX_BUN_ZIG is not set"
 fi
 
 printf '\n=== summary ===\n'

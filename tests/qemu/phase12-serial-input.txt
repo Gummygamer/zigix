@@ -1,0 +1,2 @@
+/exec-ok
+exit

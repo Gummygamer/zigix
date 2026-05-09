@@ -18,9 +18,16 @@ const REG_MCR: u16 = 4;
 const REG_LSR: u16 = 5;
 const REG_SCRATCH: u16 = 7;
 
+const RX_BUFFER_SIZE: usize = 256;
+
 var bytes_written: usize = 0;
+var rx_buffer: [RX_BUFFER_SIZE]u8 = [_]u8{0} ** RX_BUFFER_SIZE;
+var rx_head: usize = 0;
+var rx_len: usize = 0;
 
 pub fn init() void {
+    clearRxBuffer();
+
     // Disable all UART interrupts; we drive it polled.
     cpu.outb(COM1 + REG_INT_ENABLE, 0x00);
 
@@ -44,6 +51,10 @@ pub fn init() void {
 
 inline fn transmitReady() bool {
     return (cpu.inb(COM1 + REG_LSR) & 0x20) != 0;
+}
+
+inline fn receiveReady() bool {
+    return (cpu.inb(COM1 + REG_LSR) & 0x01) != 0;
 }
 
 pub fn writeByte(b: u8) void {
@@ -98,7 +109,55 @@ pub fn writtenByteCount() usize {
     return bytes_written;
 }
 
+pub fn read(dest: []u8) usize {
+    pollInput();
+
+    var copied: usize = 0;
+    while (copied < dest.len and rx_len > 0) : (copied += 1) {
+        dest[copied] = popRxByte().?;
+    }
+    return copied;
+}
+
+pub fn pollInput() void {
+    while (receiveReady()) {
+        pushRxByte(cpu.inb(COM1 + REG_DATA));
+    }
+}
+
+pub fn clearReceivedForTest() void {
+    clearRxBuffer();
+    while (receiveReady()) {
+        _ = cpu.inb(COM1 + REG_DATA);
+    }
+}
+
+pub fn injectReceivedForTest(bytes: []const u8) void {
+    for (bytes) |byte| pushRxByte(byte);
+}
+
 pub fn scratchRoundTrip(value: u8) bool {
     cpu.outb(COM1 + REG_SCRATCH, value);
     return cpu.inb(COM1 + REG_SCRATCH) == value;
+}
+
+fn pushRxByte(byte: u8) void {
+    if (rx_len == rx_buffer.len) return;
+    const tail = (rx_head + rx_len) % rx_buffer.len;
+    rx_buffer[tail] = byte;
+    rx_len += 1;
+}
+
+fn popRxByte() ?u8 {
+    if (rx_len == 0) return null;
+    const byte = rx_buffer[rx_head];
+    rx_head = (rx_head + 1) % rx_buffer.len;
+    rx_len -= 1;
+    if (rx_len == 0) rx_head = 0;
+    return byte;
+}
+
+fn clearRxBuffer() void {
+    rx_head = 0;
+    rx_len = 0;
 }

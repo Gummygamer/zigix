@@ -60,6 +60,11 @@ pub const TEST_syscall_pipe_blocking = testing.Test{
     .run = syscallPipeBlocking,
 };
 
+pub const TEST_syscall_stdin_console = testing.Test{
+    .name = "syscall_stdin_console",
+    .run = syscallStdinConsole,
+};
+
 pub const TEST_process_lifecycle = testing.Test{
     .name = "process_lifecycle",
     .run = processLifecycle,
@@ -425,6 +430,30 @@ fn syscallPipeBlocking() testing.TestError!void {
     const waited = syscall.dispatch.invoke(syscall.numbers.wait4, child, 0, 0, 0, 0, 0);
     if (waited != child) return error.SyscallPipeBlockingChildReapFailed;
     child_reaped = true;
+}
+
+fn syscallStdinConsole() testing.TestError!void {
+    serial.clearReceivedForTest();
+
+    var buf: [4]u8 = undefined;
+    if (syscall.dispatch.invoke(syscall.numbers.read, syscall.STDIN, @intFromPtr(&buf), buf.len, 0, 0, 0) != -syscall.errno.AGAIN) {
+        return error.SyscallStdinEmptyDidNotReturnAgain;
+    }
+
+    serial.injectReceivedForTest("abc");
+    if (syscall.dispatch.invoke(syscall.numbers.read, syscall.STDIN, @intFromPtr(&buf), 2, 0, 0, 0) != 2) {
+        return error.SyscallStdinFirstReadFailed;
+    }
+    if (!std.mem.eql(u8, buf[0..2], "ab")) return error.SyscallStdinFirstReadWrongData;
+
+    if (syscall.dispatch.invoke(syscall.numbers.read, syscall.STDIN, @intFromPtr(&buf), buf.len, 0, 0, 0) != 1) {
+        return error.SyscallStdinSecondReadFailed;
+    }
+    if (buf[0] != 'c') return error.SyscallStdinSecondReadWrongData;
+
+    if (syscall.dispatch.invoke(syscall.numbers.read, syscall.STDIN, @intFromPtr(&buf), buf.len, 0, 0, 0) != -syscall.errno.AGAIN) {
+        return error.SyscallStdinDrainedDidNotReturnAgain;
+    }
 }
 
 fn processLifecycle() testing.TestError!void {

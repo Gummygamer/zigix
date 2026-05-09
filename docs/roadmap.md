@@ -408,10 +408,10 @@ Dependency path:
 
 Concrete deliverables:
 
-- [ ] Serial RX ring buffer and `read(0, ...)` path.
+- [x] Serial RX ring buffer and `read(0, ...)` path.
 - [ ] Console-read blocking/resume behavior, or an explicitly tested
   nonblocking retry policy if transparent syscall resume remains deferred.
-- [ ] Scriptable QEMU serial-input smoke runner.
+- [x] Scriptable QEMU serial-input smoke runner.
 - [ ] `tinysh` interactive loop with prompt and foreground command execution.
 - [ ] QEMU smoke path feeds `/exec-ok\nexit\n` to `/tinysh` and expects
   `[ZIGIX:TEST:PASS:tinysh_interactive]` plus `[ZIGIX:INIT:OK]`.
@@ -459,12 +459,11 @@ Non-goals for the first interactive shell:
 The next thing to do, concretely:
 
 1. Source `.env`, then run `ci/local.sh` to confirm the Phase 11 smoke
-   still passes from the current checkout.
-2. Start Phase 12 with serial stdin and console read semantics.
-3. Add a scriptable QEMU serial-input harness before making shell input
-   interactive.
-4. Treat the interactive shell as Phase 12 work: serial stdin, console read
-   semantics, a scriptable QEMU input harness, then the `tinysh` prompt loop.
+   and the Phase 12 scripted-stdin smoke still pass from the current checkout.
+2. Continue Phase 12 by deciding whether console reads get transparent
+   blocking/resume now or an explicitly tested nonblocking retry policy first.
+3. Treat the interactive shell as Phase 12 work: console read semantics, then
+   the `tinysh` prompt loop and interactive smoke marker.
 
 Operational reminders for a fresh session:
 

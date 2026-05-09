@@ -41,8 +41,12 @@ Run on the host with `tools/toolchain/zig-bun build host-test`. Targets:
 
 ## Layer 3 — QEMU smoke tests
 
-QEMU runs headless and writes the guest's serial port to a file. The harness
-parses **machine-readable markers** out of that file.
+QEMU runs headless and writes the guest's serial port to a file. The default
+`qemu-smoke` path is output-only. Phase 12 also has
+`qemu-smoke-scripted`, which attaches COM1 to stdio, feeds
+`tests/qemu/phase12-serial-input.txt` to the guest, captures the serial output
+back to `zig-out/serial-scripted.log`, and parses the same **machine-readable
+markers** out of that file.
 
 ### Serial-log marker protocol
 

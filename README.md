@@ -33,9 +33,9 @@ The kernel has per-process descriptor tables, `dup`, close-on-exec metadata,
 basic pipe read/write coverage, process-table/PID lifecycle coverage,
 per-process address-space roots, bounded argv/envp stack construction, a
 cooperative `posix_spawn`/blocking-`wait4` handoff, process-aware pipe
-park/wake queues, and a FIFO runnable queue. Timer-driven preemption,
-transparent blocking syscall resume, `fork`, auxv, and interactive stdin are
-future work.
+park/wake queues, a FIFO runnable queue, and the first Phase 12 serial stdin
+path for `read(0, ...)`. Timer-driven preemption, transparent blocking syscall
+resume, `fork`, auxv, and the interactive shell loop are future work.
 
 See [`docs/roadmap.md`](docs/roadmap.md) for the phased plan and
 [`docs/bun-zig-toolchain.md`](docs/bun-zig-toolchain.md) for the toolchain
@@ -66,6 +66,7 @@ The build entry points are intentionally thin:
 | `tools/toolchain/zig-bun build check-toolchain` | Same check, via `build.zig`. Requires Bun Zig to run.   |
 | `tools/toolchain/zig-bun build host-test`       | Run host-side unit tests.                                       |
 | `tools/toolchain/zig-bun build qemu-smoke`      | Boot the kernel in QEMU and verify Phase 11 serial markers.     |
+| `tools/toolchain/zig-bun build qemu-smoke-scripted` | Boot QEMU with scripted COM1 input for Phase 12 stdin work. |
 | `ci/local.sh`                          | Run all host-side checks.                                        |
 
 QEMU smoke runs are headless and machine-readable. See
