@@ -200,6 +200,16 @@ pub const Process = struct {
         self.fd_table[2] = .{ .target = .stderr };
     }
 
+    fn cloneFrom(self: *Process, parent: *const Process) void {
+        for (&self.fd_table) |*slot| slot.* = null;
+        var fd: usize = 0;
+        while (fd < parent.fd_table.len) : (fd += 1) {
+            const descriptor = parent.fd_table[fd] orelse continue;
+            retainTarget(descriptor.target);
+            self.fd_table[fd] = descriptor;
+        }
+    }
+
     fn get(self: *Process, fd: usize) ?Descriptor {
         if (fd >= self.fd_table.len) return null;
         return self.fd_table[fd];
@@ -237,6 +247,14 @@ pub const Process = struct {
         }
     }
 
+    fn closeAll(self: *Process) void {
+        for (&self.fd_table) |*slot| {
+            const descriptor = slot.* orelse continue;
+            releaseTarget(descriptor.target);
+            slot.* = null;
+        }
+    }
+
     fn allocFd(self: *Process) ?usize {
         var fd: usize = 0;
         while (fd < self.fd_table.len) : (fd += 1) {
@@ -246,22 +264,31 @@ pub const Process = struct {
     }
 };
 
+const ProcessFdTable = struct {
+    used: bool = false,
+    pid: proc.Pid = 0,
+    process: Process = .{},
+};
+
 var open_files: [MAX_OPEN_FILES]OpenFile = [_]OpenFile{.{}} ** MAX_OPEN_FILES;
 var pipes: [MAX_PIPES]Pipe = [_]Pipe{.{}} ** MAX_PIPES;
-var current_process: Process = .{};
+var process_tables: [proc.MAX_PROCESSES]ProcessFdTable = [_]ProcessFdTable{.{}} ** proc.MAX_PROCESSES;
 var exec_args_scratch: ExecArgs = .{};
 
 pub fn init() void {
     for (&open_files) |*slot| slot.* = .{};
     for (&pipes) |*slot| slot.* = .{};
     proc.init();
-    current_process.init();
+    for (&process_tables) |*slot| slot.* = .{};
+    const table = allocProcessTable(proc.currentPid()) orelse unreachable;
+    table.process.init();
 }
 
 pub fn invoke(num: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64, arg5: u64) i64 {
     _ = arg5;
     _ = arg4;
-    return switch (num) {
+    cleanupDefunctProcessTables();
+    const ret = switch (num) {
         numbers.read => sysRead(arg0, arg1, arg2),
         numbers.write => sysWrite(arg0, arg1, arg2),
         numbers.open => sysOpen(arg0, arg1, arg2),
@@ -278,6 +305,8 @@ pub fn invoke(num: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64, a
         numbers.posix_spawn => sysPosixSpawn(arg0, arg1, arg2),
         else => errno.fail(errno.NOSYS),
     };
+    cleanupDefunctProcessTables();
+    return ret;
 }
 
 pub fn selfTestWriteMarker() bool {
@@ -318,11 +347,12 @@ const TrapFrame = extern struct {
 };
 
 fn sysRead(fd_arg: u64, buf_ptr: u64, len: u64) i64 {
+    const process = currentProcess() orelse return errno.fail(errno.SRCH);
     const fd = fdIndex(fd_arg) orelse return errno.fail(errno.BADF);
     if (len == 0) return 0;
     const dest = userBytesMut(buf_ptr, len) orelse return errno.fail(errno.FAULT);
 
-    const descriptor = current_process.get(fd) orelse return errno.fail(errno.BADF);
+    const descriptor = process.get(fd) orelse return errno.fail(errno.BADF);
     const amount = switch (descriptor.target) {
         .stdin => 0,
         .stdout, .stderr => return errno.fail(errno.BADF),
@@ -343,11 +373,12 @@ fn sysRead(fd_arg: u64, buf_ptr: u64, len: u64) i64 {
 }
 
 fn sysWrite(fd_arg: u64, buf_ptr: u64, len: u64) i64 {
+    const process = currentProcess() orelse return errno.fail(errno.SRCH);
     const fd = fdIndex(fd_arg) orelse return errno.fail(errno.BADF);
     if (len == 0) return 0;
     const bytes = userBytesConst(buf_ptr, len) orelse return errno.fail(errno.FAULT);
 
-    const descriptor = current_process.get(fd) orelse return errno.fail(errno.BADF);
+    const descriptor = process.get(fd) orelse return errno.fail(errno.BADF);
     switch (descriptor.target) {
         .stdout, .stderr => {
             serial.write(bytes);
@@ -369,12 +400,13 @@ fn sysWrite(fd_arg: u64, buf_ptr: u64, len: u64) i64 {
 
 fn sysOpen(path_ptr: u64, flags: u64, mode: u64) i64 {
     _ = mode;
+    const process = currentProcess() orelse return errno.fail(errno.SRCH);
     if ((flags & ~O_CLOEXEC) != 0) return errno.fail(errno.INVAL);
 
     const path = userCString(path_ptr) orelse return errno.fail(errno.FAULT);
     const file = fs.vfs.open(path) catch |err| return mapFsError(err);
     const open_file = allocOpenFile(file) orelse return errno.fail(errno.NFILE);
-    const slot = current_process.install(.{
+    const slot = process.install(.{
         .target = .{ .file = open_file },
         .close_on_exec = (flags & O_CLOEXEC) != 0,
     }) orelse {
@@ -385,14 +417,16 @@ fn sysOpen(path_ptr: u64, flags: u64, mode: u64) i64 {
 }
 
 fn sysClose(fd_arg: u64) i64 {
+    const process = currentProcess() orelse return errno.fail(errno.SRCH);
     const fd = fdIndex(fd_arg) orelse return errno.fail(errno.BADF);
-    if (!current_process.close(fd)) return errno.fail(errno.BADF);
+    if (!process.close(fd)) return errno.fail(errno.BADF);
     return 0;
 }
 
 fn sysLseek(fd_arg: u64, offset_arg: u64, whence: u64) i64 {
+    const process = currentProcess() orelse return errno.fail(errno.SRCH);
     const fd = fdIndex(fd_arg) orelse return errno.fail(errno.BADF);
-    const descriptor = current_process.get(fd) orelse return errno.fail(errno.BADF);
+    const descriptor = process.get(fd) orelse return errno.fail(errno.BADF);
     const open_file = switch (descriptor.target) {
         .file => |open_file| open_file,
         .stdin, .stdout, .stderr, .pipe_read, .pipe_write => return errno.fail(errno.BADF),
@@ -421,10 +455,11 @@ fn sysStat(path_ptr: u64, stat_ptr: u64) i64 {
 }
 
 fn sysFstat(fd_arg: u64, stat_ptr: u64) i64 {
+    const process = currentProcess() orelse return errno.fail(errno.SRCH);
     const fd = fdIndex(fd_arg) orelse return errno.fail(errno.BADF);
     const out = userStat(stat_ptr) orelse return errno.fail(errno.FAULT);
 
-    const descriptor = current_process.get(fd) orelse return errno.fail(errno.BADF);
+    const descriptor = process.get(fd) orelse return errno.fail(errno.BADF);
     out.* = switch (descriptor.target) {
         .stdin, .stdout, .stderr => .{ .mode = 0o020000 },
         .pipe_read, .pipe_write => .{ .mode = 0o010000 },
@@ -434,16 +469,17 @@ fn sysFstat(fd_arg: u64, stat_ptr: u64) i64 {
 }
 
 fn sysPipe(pipefd_ptr: u64) i64 {
+    const process = currentProcess() orelse return errno.fail(errno.SRCH);
     const pipefd = userFdPair(pipefd_ptr) orelse return errno.fail(errno.FAULT);
     const pipe = allocPipe() orelse return errno.fail(errno.NFILE);
 
-    const read_fd = current_process.install(.{ .target = .{ .pipe_read = pipe } }) orelse {
+    const read_fd = process.install(.{ .target = .{ .pipe_read = pipe } }) orelse {
         releasePipeRead(pipe);
         releasePipeWrite(pipe);
         return errno.fail(errno.NFILE);
     };
-    const write_fd = current_process.install(.{ .target = .{ .pipe_write = pipe } }) orelse {
-        _ = current_process.close(read_fd);
+    const write_fd = process.install(.{ .target = .{ .pipe_write = pipe } }) orelse {
+        _ = process.close(read_fd);
         releasePipeWrite(pipe);
         return errno.fail(errno.NFILE);
     };
@@ -454,9 +490,10 @@ fn sysPipe(pipefd_ptr: u64) i64 {
 }
 
 fn sysDup(fd_arg: u64) i64 {
+    const process = currentProcess() orelse return errno.fail(errno.SRCH);
     const fd = fdIndex(fd_arg) orelse return errno.fail(errno.BADF);
-    const new_fd = current_process.dup(fd) orelse {
-        if (current_process.get(fd) == null) return errno.fail(errno.BADF);
+    const new_fd = process.dup(fd) orelse {
+        if (process.get(fd) == null) return errno.fail(errno.BADF);
         return errno.fail(errno.NFILE);
     };
     return @intCast(new_fd);
@@ -478,7 +515,8 @@ fn sysExecve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) i64 {
         .envp = args.envp(&envp_slices),
     }) catch |err| return mapExecError(err);
 
-    current_process.closeOnExec();
+    const process = currentProcess() orelse return errno.fail(errno.SRCH);
+    process.closeOnExec();
     arch.user.enter(image.entry, image.stack_top);
 }
 
@@ -527,7 +565,8 @@ fn runChildForBlockingWait(caller: proc.Pid, requested_pid: i64, status_out: ?*i
         });
     };
 
-    current_process.closeOnExec();
+    const process = currentProcess() orelse return errno.fail(errno.SRCH);
+    process.closeOnExec();
     const resumed_pid = arch.user.enterWithContext(resume_context, image.entry, image.stack_top);
     proc.finishSpawnResume(proc.currentPid(), @intCast(resumed_pid));
 
@@ -545,6 +584,7 @@ fn runChildForBlockingWait(caller: proc.Pid, requested_pid: i64, status_out: ?*i
 }
 
 fn sysExit(status: u64) noreturn {
+    releaseProcessTable(proc.currentPid());
     if (proc.exitCurrent(status)) |handoff| {
         arch.user.resumeKernelContext(handoff.context, handoff.return_value);
     }
@@ -561,6 +601,61 @@ fn statFor(inode: *const fs.vfs.Inode) Stat {
         .size = if (is_dir) 0 else @intCast(inode.data.len),
         .blocks = if (is_dir) 0 else @intCast((inode.data.len + 511) / 512),
     };
+}
+
+fn currentProcess() ?*Process {
+    return processForPid(proc.currentPid());
+}
+
+fn processForPid(pid: proc.Pid) ?*Process {
+    if (proc.runState(pid) == null) return null;
+    if (findProcessTable(pid)) |table| return &table.process;
+
+    const table = allocProcessTable(pid) orelse return null;
+    if (proc.parentPid(pid)) |parent| {
+        if (findProcessTable(parent)) |parent_table| {
+            table.process.cloneFrom(&parent_table.process);
+            return &table.process;
+        }
+    }
+    table.process.init();
+    return &table.process;
+}
+
+fn findProcessTable(pid: proc.Pid) ?*ProcessFdTable {
+    for (&process_tables) |*table| {
+        if (table.used and table.pid == pid) return table;
+    }
+    return null;
+}
+
+fn allocProcessTable(pid: proc.Pid) ?*ProcessFdTable {
+    for (&process_tables) |*table| {
+        if (!table.used) {
+            table.* = .{
+                .used = true,
+                .pid = pid,
+                .process = .{},
+            };
+            return table;
+        }
+    }
+    return null;
+}
+
+fn releaseProcessTable(pid: proc.Pid) void {
+    const table = findProcessTable(pid) orelse return;
+    table.process.closeAll();
+    table.* = .{};
+}
+
+fn cleanupDefunctProcessTables() void {
+    for (&process_tables) |*table| {
+        if (!table.used) continue;
+        if (proc.runState(table.pid) != null) continue;
+        table.process.closeAll();
+        table.* = .{};
+    }
 }
 
 fn allocOpenFile(file: fs.vfs.File) ?*OpenFile {
@@ -634,13 +729,15 @@ fn releasePipeIfUnused(pipe: *Pipe) void {
 }
 
 pub fn fdCloseOnExecForTest(fd_arg: u64) ?bool {
+    const process = currentProcess() orelse return null;
     const fd = fdIndex(fd_arg) orelse return null;
-    const descriptor = current_process.get(fd) orelse return null;
+    const descriptor = process.get(fd) orelse return null;
     return descriptor.close_on_exec;
 }
 
 pub fn closeOnExecForTest() void {
-    current_process.closeOnExec();
+    const process = currentProcess() orelse return;
+    process.closeOnExec();
 }
 
 pub fn execvePlanForTest(path: []const u8) bool {

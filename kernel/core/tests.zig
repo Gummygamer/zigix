@@ -95,6 +95,11 @@ pub const TEST_process_run_queue = testing.Test{
     .run = processRunQueue,
 };
 
+pub const TEST_process_fd_tables = testing.Test{
+    .name = "process_fd_tables",
+    .run = processFdTables,
+};
+
 pub const TEST_process_spawn_resume = testing.Test{
     .name = "process_spawn_resume",
     .run = processSpawnResume,
@@ -661,6 +666,75 @@ fn processRunQueue() testing.TestError!void {
     if (waited_second != second) return error.ProcessRunQueueSecondReapFailed;
     second_reaped = true;
     if (proc.runnableQueueLen() != 0) return error.ProcessRunQueueNotDrained;
+}
+
+fn processFdTables() testing.TestError!void {
+    const parent = proc.currentPid();
+    const path = "/init\x00";
+    const cloexec_fd = syscall.dispatch.invoke(syscall.numbers.open, @intFromPtr(path.ptr), syscall.dispatch.O_CLOEXEC, 0, 0, 0, 0);
+    if (cloexec_fd < 3) return error.ProcessFdCloexecOpenFailed;
+
+    const keep_fd = syscall.dispatch.invoke(syscall.numbers.open, @intFromPtr(path.ptr), 0, 0, 0, 0, 0);
+    if (keep_fd < 3) return error.ProcessFdKeepOpenFailed;
+
+    const child = try proc.spawnChild(parent);
+    var child_reaped = false;
+    errdefer {
+        if (proc.currentPid() != parent) {
+            proc.switchTo(parent) catch {};
+        }
+        _ = syscall.dispatch.invoke(syscall.numbers.close, @intCast(cloexec_fd), 0, 0, 0, 0, 0);
+        _ = syscall.dispatch.invoke(syscall.numbers.close, @intCast(keep_fd), 0, 0, 0, 0, 0);
+        if (!child_reaped and proc.runState(child) != null) {
+            _ = proc.markExited(child, 1);
+            _ = syscall.dispatch.invoke(syscall.numbers.wait4, child, 0, 0, 0, 0, 0);
+        }
+    }
+
+    try proc.switchTo(child);
+    if (syscall.dispatch.fdCloseOnExecForTest(@intCast(cloexec_fd)) != true) {
+        return error.ProcessFdChildDidNotInheritCloexec;
+    }
+    if (syscall.dispatch.fdCloseOnExecForTest(@intCast(keep_fd)) != false) {
+        return error.ProcessFdChildDidNotInheritKeepFd;
+    }
+
+    if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(keep_fd), 0, 0, 0, 0, 0) != 0) {
+        return error.ProcessFdChildCloseFailed;
+    }
+    syscall.dispatch.closeOnExecForTest();
+    if (syscall.dispatch.fdCloseOnExecForTest(@intCast(cloexec_fd)) != null) {
+        return error.ProcessFdChildCloexecSurvived;
+    }
+    if (syscall.dispatch.fdCloseOnExecForTest(@intCast(keep_fd)) != null) {
+        return error.ProcessFdChildCloseSurvived;
+    }
+
+    try proc.switchTo(parent);
+    if (syscall.dispatch.fdCloseOnExecForTest(@intCast(cloexec_fd)) != true) {
+        return error.ProcessFdParentCloexecChanged;
+    }
+    if (syscall.dispatch.fdCloseOnExecForTest(@intCast(keep_fd)) != false) {
+        return error.ProcessFdParentKeepChanged;
+    }
+
+    var byte: [1]u8 = undefined;
+    if (syscall.dispatch.invoke(syscall.numbers.read, @intCast(keep_fd), @intFromPtr(&byte), byte.len, 0, 0, 0) != byte.len) {
+        return error.ProcessFdParentReadFailed;
+    }
+    if (byte[0] != 0x7f) return error.ProcessFdParentReadWrongData;
+
+    if (!proc.markExited(child, 0)) return error.ProcessFdChildExitFailed;
+    const waited = syscall.dispatch.invoke(syscall.numbers.wait4, child, 0, 0, 0, 0, 0);
+    if (waited != child) return error.ProcessFdChildReapFailed;
+    child_reaped = true;
+
+    if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(cloexec_fd), 0, 0, 0, 0, 0) != 0) {
+        return error.ProcessFdParentCloseFailed;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(keep_fd), 0, 0, 0, 0, 0) != 0) {
+        return error.ProcessFdParentCloseFailed;
+    }
 }
 
 fn processSpawnResume() testing.TestError!void {

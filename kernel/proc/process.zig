@@ -154,6 +154,11 @@ pub fn runState(pid: Pid) ?RunState {
     return proc.state;
 }
 
+pub fn parentPid(pid: Pid) ?Pid {
+    const proc = find(pid) orelse return null;
+    return proc.parent;
+}
+
 pub fn kernelStackTop(pid: Pid) ?usize {
     const proc = find(pid) orelse return null;
     if (proc.kernel_stack.page_count == 0 and proc.kernel_stack.top_override == 0) return null;

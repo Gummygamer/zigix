@@ -245,6 +245,9 @@ allocation, child exit state, `wait4` status reporting, and one-shot reaping.
 `process_wait_nohang` covers live-child waits and `WNOHANG`.
 `process_wait_blocking` covers parking the parent, entering a spawned child,
 resuming on child exit, status reporting, and reaping.
+`process_fd_tables` covers per-PID descriptor-table inheritance for spawned
+children, child-only descriptor close, child-only close-on-exec cleanup, and
+parent descriptor survival across child descriptor mutations.
 
 The exec slice adds `execve_load`, covering side-effect-free validation of the
 initramfs `/exec-ok` ELF image through the exec loader path and close-on-exec

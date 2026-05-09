@@ -23,8 +23,8 @@ rejected.
 | 7     | ELF64 static loader                  | done         | `[ZIGIX:ELF:OK]` |
 | 8     | User mode + init                     | done         | `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 9     | File descriptors and basic Unix I/O  | done         | `[ZIGIX:TEST:PASS:syscall_fd_table]`, `[ZIGIX:TEST:PASS:syscall_pipe]` |
-| 10    | `exec` and process lifecycle         | in progress  | `[ZIGIX:TEST:PASS:syscall_pipe_blocking]`, `[ZIGIX:TEST:PASS:process_lifecycle]`, `[ZIGIX:TEST:PASS:process_wait_nohang]`, `[ZIGIX:TEST:PASS:process_wait_blocking]`, `[ZIGIX:TEST:PASS:process_address_space]`, `[ZIGIX:TEST:PASS:process_page_tables]`, `[ZIGIX:TEST:PASS:process_scheduler_groundwork]`, `[ZIGIX:TEST:PASS:process_run_queue]`, `[ZIGIX:TEST:PASS:process_spawn_resume]`, `[ZIGIX:TEST:PASS:spawn_child_image]`, `[ZIGIX:TEST:PASS:posix_spawn_handoff]`, `[ZIGIX:TEST:PASS:execve_load]`, `[ZIGIX:TEST:PASS:execve_argv_stack]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
-| 11–15 | Userspace expansion                  | pending      | per-phase markers TBD |
+| 10    | `exec` and process lifecycle         | in progress  | `[ZIGIX:TEST:PASS:syscall_pipe_blocking]`, `[ZIGIX:TEST:PASS:process_lifecycle]`, `[ZIGIX:TEST:PASS:process_wait_nohang]`, `[ZIGIX:TEST:PASS:process_wait_blocking]`, `[ZIGIX:TEST:PASS:process_address_space]`, `[ZIGIX:TEST:PASS:process_page_tables]`, `[ZIGIX:TEST:PASS:process_scheduler_groundwork]`, `[ZIGIX:TEST:PASS:process_run_queue]`, `[ZIGIX:TEST:PASS:process_fd_tables]`, `[ZIGIX:TEST:PASS:process_spawn_resume]`, `[ZIGIX:TEST:PASS:spawn_child_image]`, `[ZIGIX:TEST:PASS:posix_spawn_handoff]`, `[ZIGIX:TEST:PASS:execve_load]`, `[ZIGIX:TEST:PASS:execve_argv_stack]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
+| 11–16 | Userspace expansion                  | pending      | per-phase markers TBD |
 
 ## Phase 0 — Toolchain and smoke-test skeleton ✅
 
@@ -281,28 +281,159 @@ userspace phases.
   `process_run_queue` test covers ordering, wake enqueueing, and switch
   dequeue behavior. The scheduler is still cooperative; timer-driven
   preemption and full syscall blocking/resume remain later work.
+- [x] Per-process descriptor table isolation for spawned children. The syscall
+  layer now keeps fd tables keyed by PID, lazily inherits a child table from
+  its parent on first syscall use, and applies close-on-exec to the child table
+  without mutating the parent. The `process_fd_tables` test covers inherited
+  descriptors, child-only close, and parent descriptor survival.
+
+### Phase 10 dependency map
+
+Phase 10 grew because several Unix process concepts depend on each other. Do
+not start Phase 11 by adding shell code until the Phase 10 closeout gate below
+is true.
+
+Completed dependency chain:
+
+1. Process identity: PID allocation, process table slots, parent/child
+   relationships, exit state, and `wait4` reaping.
+2. User image replacement: static ELF load planning, `execve`, close-on-exec,
+   bounded argv/envp copy-in, and initial stack construction.
+3. Address-space ownership: per-process user-region tracking, child-targeted
+   image loading, and per-process page-table roots.
+4. Cooperative switching base: kernel stack ownership, TSS stack switching,
+   CR3 switching, process run states, saved parent continuations, and FIFO
+   runnable queues.
+5. Spawn/wait handoff: `posix_spawn` prepares a runnable child; blocking
+   `wait4` enters the child image, resumes the parent on child exit, and then
+   reaps the child.
+6. Descriptor isolation: spawned children lazily inherit per-PID fd tables,
+   close-on-exec is applied to the child table, and child close operations do
+   not mutate the parent.
+7. Pipe waiter groundwork: empty reads and full writes can park and wake
+   processes through pipe wait queues and the run queue, but the syscall still
+   returns `EAGAIN` instead of transparently resuming the original call.
+
+Remaining Phase 10 closeout gates:
+
+- [ ] Record an explicit deferral decision for transparent pipe syscall
+  resume. The current `int 0x80` dispatcher only receives syscall arguments
+  and returns a value; transparent retry needs saved syscall continuation state
+  across scheduler handoff. This should not block a tiny shell unless Phase 11
+  includes pipelines or blocking stdin.
+- [ ] Record an explicit deferral decision for `fork`. `fork` depends on
+  copy-on-write or eager address-space cloning plus scheduler support for
+  independently runnable address spaces. Phase 11 should keep using
+  `posix_spawn`/`waitpid`.
+- [ ] Decide whether `cd` in Phase 11 is shell-local path resolution or a real
+  `chdir` syscall. Real `chdir` pulls Phase 14 cwd semantics forward; a
+  shell-local cwd lets Phase 11 run commands without expanding the kernel ABI.
+- [ ] Add a Phase 11 smoke marker plan before writing `tinysh`, so the first
+  shell slice has a concrete acceptance test.
+- [ ] Run `ci/local.sh` after the closeout documentation and marker changes,
+  then mark Phase 10 as done only if the Phase 10 smoke still passes.
+
+Intentional deferrals after Phase 10:
+
+- Timer-driven preemption.
+- Transparent blocking syscall resume for pipes and later devices.
+- `fork`.
+- `dup2`, `chdir`, signals, unlink/rename/mkdir, and writable inode-backed
+  files unless Phase 11 or Phase 12 deliberately pulls one forward with a
+  marker.
+- Auxv and libc-scale process startup details.
 
 ## Phase 11 — Tiny shell
 
-- `userspace/tinysh/`: argv split, builtin `cd` / `exit`, run external
-  commands via `execve`.
+Phase 11 is not an interactive shell. It is the first userspace program that
+depends on the Phase 10 process work and proves foreground command execution
+without requiring console input yet.
 
-## Phase 12 — libc strategy
+Dependencies from Phase 10:
+
+- `posix_spawn` + `waitpid` for external command execution.
+- Per-process fd tables so child descriptor cleanup does not corrupt the shell.
+- Bounded argv stack construction so the shell can pass split arguments to a
+  command.
+- Cooperative wait handoff so the shell can launch one foreground command and
+  regain control after it exits.
+
+Concrete first slice:
+
+- [ ] `userspace/tinysh/`: non-interactive `-c` mode first.
+- [ ] Parse one command line into whitespace-separated argv. No quoting,
+  escaping, variables, pipes, or redirection in the first slice.
+- [ ] Builtin `exit`.
+- [ ] Builtin `cd` only after the cwd decision above is made.
+- [ ] Run external commands through `posix_spawn` + `waitpid`; keep `execve`
+  available for replacing the current image, not for the shell's normal
+  foreground command path.
+- [ ] Initramfs packaging for `/tinysh`.
+- [ ] QEMU smoke path: `/init` runs `/tinysh -c /exec-ok`; expected markers
+  include `[ZIGIX:TEST:PASS:tinysh_smoke]` plus the existing init markers.
+
+## Phase 12 — Interactive console shell
+
+Phase 12 is the first real interactive shell milestone. It should start only
+after Phase 11 proves `tinysh -c` command execution, because interactive input
+adds kernel console and test-harness dependencies that should not be mixed into
+the first shell slice.
+
+Dependency path:
+
+1. Console input source: make serial input the first stdin backend because the
+   existing QEMU path is already serial-oriented. PS/2 keyboard support can
+   follow later, but it should not block the first interactive shell.
+2. Stdin descriptor semantics: change fd `0` from permanent EOF to a console
+   read endpoint backed by an input ring buffer.
+3. Waitable console reads: when the input buffer is empty, `read(0, ...)`
+   must either block/resume through the scheduler or return `EAGAIN` with a
+   shell retry policy. Prefer fixing transparent syscall resume here if it has
+   not been done earlier, because interactive input is the first user-visible
+   consumer that truly needs it.
+4. QEMU input harness: add a runner mode that can feed scripted serial input
+   to the guest and still capture serial output for marker parsing. Keep the
+   current output-only smoke path for non-interactive tests.
+5. `tinysh` interactive mode: prompt, read one line, split argv using the
+   Phase 11 parser, run one foreground command with `posix_spawn` + `waitpid`,
+   then prompt again.
+6. Shell-local cwd or kernel cwd: implement the `cd` decision recorded during
+   Phase 10 closeout. If `cd` is shell-local, external command lookup must use
+   normalized absolute paths. If `cd` is a kernel syscall, add `chdir`/cwd
+   tests here and remove it from the Phase 14 backlog.
+
+Concrete deliverables:
+
+- [ ] Serial RX ring buffer and `read(0, ...)` path.
+- [ ] Console-read blocking/resume behavior, or an explicitly tested
+  nonblocking retry policy if transparent syscall resume remains deferred.
+- [ ] Scriptable QEMU serial-input smoke runner.
+- [ ] `tinysh` interactive loop with prompt and foreground command execution.
+- [ ] QEMU smoke path feeds `/exec-ok\nexit\n` to `/tinysh` and expects
+  `[ZIGIX:TEST:PASS:tinysh_interactive]` plus `[ZIGIX:INIT:OK]`.
+
+Non-goals for the first interactive shell:
+
+- Pipes, redirection, quoting, environment expansion, globbing, job control,
+  signals, terminal modes, command history, and cursor editing.
+- PS/2 keyboard input, unless serial input proves unsuitable.
+
+## Phase 13 — libc strategy
 
 - Decide newlib first (smaller surface) vs musl (closer to Linux ABI).
   Adapt in `userspace/libc_shim/` until then.
 
-## Phase 13 — POSIX expansion
+## Phase 14 — POSIX expansion
 
 - `dup2`, `chdir`, signals (subset: `SIGINT`, `SIGTERM`, `SIGCHLD`),
   more file ops (`unlink`, `rename`, `mkdir`).
 
-## Phase 14 — BusyBox or Toybox port
+## Phase 15 — BusyBox or Toybox port
 
 - First serious userspace beyond hand-written stubs. Port the smaller
   one first.
 
-## Phase 15 — GNU tools later
+## Phase 16 — GNU tools later
 
 - Only after BusyBox/Toybox runs cleanly on the kernel. coreutils,
   bash, etc.
@@ -326,11 +457,14 @@ The next thing to do, concretely:
 1. Source `.env`, then run `ci/local.sh` to confirm the Phase 10 smoke
    still passes.
 2. Read the Phase 10 notes above.
-3. Continue Phase 10 from the cooperative scheduler/run-queue slice.
-4. Decide whether to make pipe reads/writes resume through the scheduler now
-   or keep that for the next process slice.
-5. Decide how writable files should fit the current read-only initramfs/memfs
-   model before expanding inode write support.
+3. Work through the Phase 10 closeout gates in order: pipe resume deferral,
+   `fork` deferral, Phase 11 `cd`/cwd decision, Phase 11 marker plan.
+4. Update the status table only after those decisions are written down and
+   `ci/local.sh` still passes.
+5. Start Phase 11 with the non-interactive `tinysh -c /exec-ok` smoke path,
+   not with an interactive shell.
+6. Treat the interactive shell as Phase 12 work: serial stdin, console read
+   semantics, a scriptable QEMU input harness, then the `tinysh` prompt loop.
 
 Operational reminders for a fresh session:
 
