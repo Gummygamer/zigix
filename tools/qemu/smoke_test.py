@@ -76,6 +76,13 @@ PHASES: dict[str, list[str]] = {
         "[ZIGIX:INIT:START]",
         "[ZIGIX:INIT:OK]",
     ],
+    "phase12": [
+        "[ZIGIX:BOOT:OK]",
+        "[ZIGIX:TEST:PASS:syscall_stdin_console]",
+        "[ZIGIX:TEST:PASS:tinysh_interactive]",
+        "[ZIGIX:INIT:START]",
+        "[ZIGIX:INIT:OK]",
+    ],
 }
 
 

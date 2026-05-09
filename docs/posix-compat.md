@@ -7,7 +7,7 @@ Update this file whenever syscall or POSIX semantics change.
 
 | API      | Status  | Notes                                      | Tests |
 | -------- | ------- | ------------------------------------------ | ----- |
-| `read`   | partial | VFS files, stdin EOF, pipe read ends       | `syscall_vfs`, `syscall_fd_table`, `syscall_pipe` |
+| `read`   | partial | VFS files, polled serial stdin with `EAGAIN` when empty, pipe read ends | `syscall_vfs`, `syscall_fd_table`, `syscall_pipe`, `syscall_stdin_console`, `tinysh_interactive` |
 | `write`  | partial | stdout/stderr serial output, pipe write ends | `syscall_write`, `syscall_pipe` |
 | `open`   | partial | read-only absolute VFS paths               | `syscall_vfs`, `syscall_fd_table` |
 | `close`  | partial | per-process fd tables; spawned children inherit descriptors lazily | `syscall_vfs`, `syscall_fd_table`, `syscall_pipe`, `process_fd_tables` |

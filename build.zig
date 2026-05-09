@@ -1,11 +1,11 @@
 //! Zigix build orchestration.
 //!
-//! Phase 11 steps:
+//! Phase 12 steps:
 //!   * `check-toolchain`     -- runs the host-side toolchain check script.
 //!   * `kernel`              -- builds zig-out/bin/zigix-kernel (multiboot1 ELF).
 //!   * `validate-kernel-elf` -- sanity-checks the ELF (32-bit ELF check, multiboot magic).
 //!   * `qemu-smoke`          -- boots the kernel headlessly and parses Phase 11 serial markers.
-//!   * `qemu-smoke-scripted` -- boots with a scripted COM1 stdin fixture.
+//!   * `qemu-smoke-scripted` -- boots with scripted COM1 input and parses Phase 12 markers.
 //!   * `host-test`           -- runs host-side unit tests.
 //!
 //! IMPORTANT: invoke this build via `tools/toolchain/zig-bun build <step>`,
@@ -273,6 +273,34 @@ pub fn build(b: *std.Build) void {
 
     const install_init = b.addInstallArtifact(init_exe, .{});
 
+    const init_interactive_module = b.createModule(.{
+        .root_source_file = b.path("userspace/init-interactive/main.zig"),
+        .target = kernel_target,
+        .optimize = optimize,
+        .code_model = .small,
+        .red_zone = false,
+        .pic = false,
+        .stack_protector = false,
+        .stack_check = false,
+        .single_threaded = true,
+        .strip = false,
+        .omit_frame_pointer = false,
+        .imports = &.{
+            .{ .name = "zigix_sys", .module = userspace_sys_module },
+        },
+    });
+
+    const init_interactive_exe = b.addExecutable(.{
+        .name = "init-interactive",
+        .root_module = init_interactive_module,
+        .use_llvm = true,
+        .use_lld = true,
+    });
+    init_interactive_exe.setLinkerScript(b.path("userspace/init/linker.ld"));
+    init_interactive_exe.entry = .{ .symbol_name = "_start" };
+
+    const install_init_interactive = b.addInstallArtifact(init_interactive_exe, .{});
+
     const exec_ok_module = b.createModule(.{
         .root_source_file = b.path("userspace/exec-ok/main.zig"),
         .target = kernel_target,
@@ -348,6 +376,25 @@ pub fn build(b: *std.Build) void {
         "initramfs.zixr",
     );
 
+    const pack_interactive_initramfs = b.addSystemCommand(&.{ "python3", "tools/mkinitramfs/pack.py" });
+    const interactive_initramfs_path = pack_interactive_initramfs.addOutputFileArg("initramfs-interactive.zixr");
+    pack_interactive_initramfs.addArg("--entry");
+    pack_interactive_initramfs.addArg("init");
+    pack_interactive_initramfs.addFileArg(init_interactive_exe.getEmittedBin());
+    pack_interactive_initramfs.addArg("--entry");
+    pack_interactive_initramfs.addArg("exec-ok");
+    pack_interactive_initramfs.addFileArg(exec_ok_exe.getEmittedBin());
+    pack_interactive_initramfs.addArg("--entry");
+    pack_interactive_initramfs.addArg("tinysh");
+    pack_interactive_initramfs.addFileArg(tinysh_exe.getEmittedBin());
+    pack_interactive_initramfs.setName("mkinitramfs-interactive");
+
+    const install_interactive_initramfs = b.addInstallFileWithDir(
+        interactive_initramfs_path,
+        .bin,
+        "initramfs-interactive.zixr",
+    );
+
     const kernel_step = b.step(
         "kernel",
         "Build the Zigix kernel ELF and the multiboot1-loadable elf32 form",
@@ -355,9 +402,11 @@ pub fn build(b: *std.Build) void {
     kernel_step.dependOn(&install_kernel.step);
     kernel_step.dependOn(&install_kernel32.step);
     kernel_step.dependOn(&install_init.step);
+    kernel_step.dependOn(&install_init_interactive.step);
     kernel_step.dependOn(&install_exec_ok.step);
     kernel_step.dependOn(&install_tinysh.step);
     kernel_step.dependOn(&install_initramfs.step);
+    kernel_step.dependOn(&install_interactive_initramfs.step);
 
     // ── check-toolchain ──────────────────────────────────────────────────
     const check = b.addSystemCommand(&.{"tools/toolchain/check-bun-zig.sh"});
@@ -406,7 +455,7 @@ pub fn build(b: *std.Build) void {
 
     const qemu_run_scripted = b.addSystemCommand(&.{"tools/qemu/run.sh"});
     qemu_run_scripted.addFileArg(kernel32_path);
-    qemu_run_scripted.addFileArg(initramfs_path);
+    qemu_run_scripted.addFileArg(interactive_initramfs_path);
     qemu_run_scripted.addFileArg(b.path("tests/qemu/phase12-serial-input.txt"));
     qemu_run_scripted.addArg("zig-out/serial-scripted.log");
     qemu_run_scripted.setName("qemu-run-scripted");
@@ -417,9 +466,7 @@ pub fn build(b: *std.Build) void {
         "tools/qemu/smoke_test.py",
         "zig-out/serial-scripted.log",
         "--phase",
-        "phase11",
-        "--expect",
-        "[ZIGIX:TEST:PASS:syscall_stdin_console]",
+        "phase12",
     });
     smoke_scripted.setName("qemu-smoke-scripted-parse");
     smoke_scripted.step.dependOn(&qemu_run_scripted.step);

@@ -25,7 +25,8 @@ rejected.
 | 9     | File descriptors and basic Unix I/O  | done         | `[ZIGIX:TEST:PASS:syscall_fd_table]`, `[ZIGIX:TEST:PASS:syscall_pipe]` |
 | 10    | `exec` and process lifecycle         | done         | `[ZIGIX:TEST:PASS:syscall_pipe_blocking]`, `[ZIGIX:TEST:PASS:process_lifecycle]`, `[ZIGIX:TEST:PASS:process_wait_nohang]`, `[ZIGIX:TEST:PASS:process_wait_blocking]`, `[ZIGIX:TEST:PASS:process_address_space]`, `[ZIGIX:TEST:PASS:process_page_tables]`, `[ZIGIX:TEST:PASS:process_scheduler_groundwork]`, `[ZIGIX:TEST:PASS:process_run_queue]`, `[ZIGIX:TEST:PASS:process_fd_tables]`, `[ZIGIX:TEST:PASS:process_spawn_resume]`, `[ZIGIX:TEST:PASS:spawn_child_image]`, `[ZIGIX:TEST:PASS:posix_spawn_handoff]`, `[ZIGIX:TEST:PASS:execve_load]`, `[ZIGIX:TEST:PASS:execve_argv_stack]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 11    | Tiny shell                           | done         | `[ZIGIX:TEST:PASS:tinysh_smoke]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
-| 12–16 | Userspace expansion                  | pending      | per-phase markers TBD |
+| 12    | Interactive console shell            | done         | `[ZIGIX:TEST:PASS:tinysh_interactive]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
+| 13–16 | Userspace expansion                  | pending      | per-phase markers TBD |
 
 ## Phase 0 — Toolchain and smoke-test skeleton ✅
 
@@ -409,11 +410,11 @@ Dependency path:
 Concrete deliverables:
 
 - [x] Serial RX ring buffer and `read(0, ...)` path.
-- [ ] Console-read blocking/resume behavior, or an explicitly tested
-  nonblocking retry policy if transparent syscall resume remains deferred.
+- [x] Explicitly tested nonblocking retry policy for interactive shell reads;
+  transparent syscall resume remains deferred.
 - [x] Scriptable QEMU serial-input smoke runner.
-- [ ] `tinysh` interactive loop with prompt and foreground command execution.
-- [ ] QEMU smoke path feeds `/exec-ok\nexit\n` to `/tinysh` and expects
+- [x] `tinysh` interactive loop with prompt and foreground command execution.
+- [x] QEMU smoke path feeds `/exec-ok\nexit\n` to `/tinysh` and expects
   `[ZIGIX:TEST:PASS:tinysh_interactive]` plus `[ZIGIX:INIT:OK]`.
 
 Non-goals for the first interactive shell:
@@ -459,11 +460,12 @@ Non-goals for the first interactive shell:
 The next thing to do, concretely:
 
 1. Source `.env`, then run `ci/local.sh` to confirm the Phase 11 smoke
-   and the Phase 12 scripted-stdin smoke still pass from the current checkout.
-2. Continue Phase 12 by deciding whether console reads get transparent
-   blocking/resume now or an explicitly tested nonblocking retry policy first.
-3. Treat the interactive shell as Phase 12 work: console read semantics, then
-   the `tinysh` prompt loop and interactive smoke marker.
+   and the Phase 12 scripted interactive smoke still pass from the current
+   checkout.
+2. Start Phase 13 by choosing the first libc target: newlib for a smaller
+   porting surface or musl for closer Linux/POSIX behavior.
+3. Keep transparent blocking syscall resume on the deferred list unless the
+   libc port exposes a concrete need for it.
 
 Operational reminders for a fresh session:
 

@@ -20,22 +20,23 @@ OS with:
 
 ## Status
 
-Phase 11 is complete: Zigix boots under QEMU, initializes memory management
+Phase 12 is complete: Zigix boots under QEMU, initializes memory management
 and interrupts, mounts a Multiboot-loaded initramfs on a small VFS/memfs root,
 installs syscall ABI v0, validates a static ELF64 load plan, maps and enters a
-freestanding ring-3 `/init`, and runs `/tinysh -c /exec-ok` as the first
-non-interactive shell smoke path. The Phase 11 marker is
-`[ZIGIX:TEST:PASS:tinysh_smoke]`, emitted only after `tinysh` parses the
-command, starts `/exec-ok` with `posix_spawn`, waits for it with `waitpid`, and
-observes exit status 0.
+freestanding ring-3 `/init`, runs `/tinysh -c /exec-ok` for the Phase 11
+non-interactive shell smoke path, and runs an interactive scripted
+`/tinysh` session for Phase 12. The Phase 12 marker is
+`[ZIGIX:TEST:PASS:tinysh_interactive]`, emitted after `tinysh` reads
+`/exec-ok` from serial stdin, starts it with `posix_spawn`, waits for it with
+`waitpid`, reads `exit`, and terminates cleanly.
 
 The kernel has per-process descriptor tables, `dup`, close-on-exec metadata,
 basic pipe read/write coverage, process-table/PID lifecycle coverage,
 per-process address-space roots, bounded argv/envp stack construction, a
 cooperative `posix_spawn`/blocking-`wait4` handoff, process-aware pipe
-park/wake queues, a FIFO runnable queue, and the first Phase 12 serial stdin
-path for `read(0, ...)`. Timer-driven preemption, transparent blocking syscall
-resume, `fork`, auxv, and the interactive shell loop are future work.
+park/wake queues, a FIFO runnable queue, and a polled serial stdin path for
+`read(0, ...)`. Timer-driven preemption, transparent blocking syscall resume,
+`fork`, auxv, and richer shell behavior are future work.
 
 See [`docs/roadmap.md`](docs/roadmap.md) for the phased plan and
 [`docs/bun-zig-toolchain.md`](docs/bun-zig-toolchain.md) for the toolchain
@@ -66,7 +67,7 @@ The build entry points are intentionally thin:
 | `tools/toolchain/zig-bun build check-toolchain` | Same check, via `build.zig`. Requires Bun Zig to run.   |
 | `tools/toolchain/zig-bun build host-test`       | Run host-side unit tests.                                       |
 | `tools/toolchain/zig-bun build qemu-smoke`      | Boot the kernel in QEMU and verify Phase 11 serial markers.     |
-| `tools/toolchain/zig-bun build qemu-smoke-scripted` | Boot QEMU with scripted COM1 input for Phase 12 stdin work. |
+| `tools/toolchain/zig-bun build qemu-smoke-scripted` | Boot QEMU with scripted COM1 input and verify Phase 12 interactive shell markers. |
 | `ci/local.sh`                          | Run all host-side checks.                                        |
 
 QEMU smoke runs are headless and machine-readable. See

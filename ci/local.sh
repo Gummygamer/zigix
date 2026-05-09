@@ -152,6 +152,13 @@ run "smoke-parser-accepts-phase11" bash -c '
   tools/qemu/smoke_test.py "$tmp" --phase phase11
 '
 
+run "smoke-parser-accepts-phase12" bash -c '
+  tmp=$(mktemp)
+  trap "rm -f $tmp" EXIT
+  printf "[ZIGIX:BOOT:START]\n[ZIGIX:TOOLCHAIN:bun-zig=0.15.2]\n[ZIGIX:TEST:PASS:syscall_stdin_console]\n[ZIGIX:BOOT:OK]\n[ZIGIX:INIT:START]\n[ZIGIX:INIT:OK]\n[ZIGIX:TEST:PASS:tinysh_interactive]\n" > "$tmp"
+  tools/qemu/smoke_test.py "$tmp" --phase phase12
+'
+
 # 6. The validate-elf script must reject a non-ELF file (negative test).
 run "validate-elf-rejects-non-elf" bash -c '
   tmp=$(mktemp)
@@ -201,10 +208,10 @@ if [[ -n "${ZIGIX_BUN_ZIG:-}" ]]; then
   run "validate-kernel-elf" tools/toolchain/zig-bun build validate-kernel-elf
   if command -v qemu-system-x86_64 >/dev/null 2>&1; then
     run "qemu-smoke-phase11" tools/toolchain/zig-bun build qemu-smoke
-    run "qemu-smoke-scripted-phase12-stdin" tools/toolchain/zig-bun build qemu-smoke-scripted
+    run "qemu-smoke-scripted-phase12-interactive" tools/toolchain/zig-bun build qemu-smoke-scripted
   else
     skip "qemu-smoke-phase11" "qemu-system-x86_64 not installed"
-    skip "qemu-smoke-scripted-phase12-stdin" "qemu-system-x86_64 not installed"
+    skip "qemu-smoke-scripted-phase12-interactive" "qemu-system-x86_64 not installed"
   fi
 else
   skip "check-toolchain" "ZIGIX_BUN_ZIG is not set"
@@ -212,7 +219,7 @@ else
   skip "build-kernel" "ZIGIX_BUN_ZIG is not set"
   skip "validate-kernel-elf" "ZIGIX_BUN_ZIG is not set"
   skip "qemu-smoke-phase11" "ZIGIX_BUN_ZIG is not set"
-  skip "qemu-smoke-scripted-phase12-stdin" "ZIGIX_BUN_ZIG is not set"
+  skip "qemu-smoke-scripted-phase12-interactive" "ZIGIX_BUN_ZIG is not set"
 fi
 
 printf '\n=== summary ===\n'

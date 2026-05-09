@@ -14,6 +14,7 @@ INITRD="${2:-}"
 SERIAL_INPUT="${3:-${ZIGIX_SERIAL_INPUT:-}}"
 LOG="${4:-${ZIGIX_SERIAL_LOG:-zig-out/serial.log}}"
 TIMEOUT_SEC="${ZIGIX_QEMU_TIMEOUT:-30}"
+SERIAL_INPUT_DELAY_SEC="${ZIGIX_SERIAL_INPUT_DELAY:-0.2}"
 
 mkdir -p "$(dirname "$LOG")"
 
@@ -76,11 +77,12 @@ fi
 
 set +e
 if [[ -n "$SERIAL_INPUT" ]]; then
-  timeout --foreground "${TIMEOUT_SEC}" qemu-system-x86_64 "${QEMU_ARGS[@]}" <"$SERIAL_INPUT" >"$LOG"
+  { sleep "${SERIAL_INPUT_DELAY_SEC}"; cat "$SERIAL_INPUT"; } | timeout --foreground "${TIMEOUT_SEC}" qemu-system-x86_64 "${QEMU_ARGS[@]}" >"$LOG"
+  rc=${PIPESTATUS[1]}
 else
   timeout --foreground "${TIMEOUT_SEC}" qemu-system-x86_64 "${QEMU_ARGS[@]}"
+  rc=$?
 fi
-rc=$?
 set -e
 
 # Exit codes we consider "the run finished, defer to the parser":

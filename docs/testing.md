@@ -42,8 +42,9 @@ Run on the host with `tools/toolchain/zig-bun build host-test`. Targets:
 ## Layer 3 — QEMU smoke tests
 
 QEMU runs headless and writes the guest's serial port to a file. The default
-`qemu-smoke` path is output-only. Phase 12 also has
-`qemu-smoke-scripted`, which attaches COM1 to stdio, feeds
+`qemu-smoke` path is output-only and keeps the Phase 11 `/tinysh -c` gate.
+Phase 12 also has `qemu-smoke-scripted`, which boots an alternate initramfs
+whose `/init` launches interactive `/tinysh`, attaches COM1 to stdio, feeds
 `tests/qemu/phase12-serial-input.txt` to the guest, captures the serial output
 back to `zig-out/serial-scripted.log`, and parses the same **machine-readable
 markers** out of that file.
