@@ -39,9 +39,10 @@ regions against the child PID, and return that PID to the parent. A blocking
 on child exit, and reaps the child, with QEMU coverage via
 `process_page_tables`, `spawn_child_image`, `posix_spawn_handoff`, and
 `process_wait_blocking`. Pipes now have the first process-aware park/wake path
-for empty reads and full writes, with `EAGAIN` still surfacing until general
-scheduler run queues can deschedule and resume callers transparently. General
-scheduler run queues and auxv are still future work.
+for empty reads and full writes, with `EAGAIN` still surfacing until syscall
+blocking paths can resume callers transparently. The process table now keeps a
+FIFO runnable queue for cooperative scheduling decisions; timer-driven
+preemption and auxv are still future work.
 
 See [`docs/roadmap.md`](docs/roadmap.md) for the phased plan and
 [`docs/bun-zig-toolchain.md`](docs/bun-zig-toolchain.md) for the toolchain

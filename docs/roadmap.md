@@ -23,7 +23,7 @@ rejected.
 | 7     | ELF64 static loader                  | done         | `[ZIGIX:ELF:OK]` |
 | 8     | User mode + init                     | done         | `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 9     | File descriptors and basic Unix I/O  | done         | `[ZIGIX:TEST:PASS:syscall_fd_table]`, `[ZIGIX:TEST:PASS:syscall_pipe]` |
-| 10    | `exec` and process lifecycle         | in progress  | `[ZIGIX:TEST:PASS:syscall_pipe_blocking]`, `[ZIGIX:TEST:PASS:process_lifecycle]`, `[ZIGIX:TEST:PASS:process_wait_nohang]`, `[ZIGIX:TEST:PASS:process_wait_blocking]`, `[ZIGIX:TEST:PASS:process_address_space]`, `[ZIGIX:TEST:PASS:process_page_tables]`, `[ZIGIX:TEST:PASS:process_scheduler_groundwork]`, `[ZIGIX:TEST:PASS:process_spawn_resume]`, `[ZIGIX:TEST:PASS:spawn_child_image]`, `[ZIGIX:TEST:PASS:posix_spawn_handoff]`, `[ZIGIX:TEST:PASS:execve_load]`, `[ZIGIX:TEST:PASS:execve_argv_stack]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
+| 10    | `exec` and process lifecycle         | in progress  | `[ZIGIX:TEST:PASS:syscall_pipe_blocking]`, `[ZIGIX:TEST:PASS:process_lifecycle]`, `[ZIGIX:TEST:PASS:process_wait_nohang]`, `[ZIGIX:TEST:PASS:process_wait_blocking]`, `[ZIGIX:TEST:PASS:process_address_space]`, `[ZIGIX:TEST:PASS:process_page_tables]`, `[ZIGIX:TEST:PASS:process_scheduler_groundwork]`, `[ZIGIX:TEST:PASS:process_run_queue]`, `[ZIGIX:TEST:PASS:process_spawn_resume]`, `[ZIGIX:TEST:PASS:spawn_child_image]`, `[ZIGIX:TEST:PASS:posix_spawn_handoff]`, `[ZIGIX:TEST:PASS:execve_load]`, `[ZIGIX:TEST:PASS:execve_argv_stack]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 11–15 | Userspace expansion                  | pending      | per-phase markers TBD |
 
 ## Phase 0 — Toolchain and smoke-test skeleton ✅
@@ -268,16 +268,19 @@ userspace phases.
   `process_wait_blocking` test and `/init` smoke path cover the handoff.
 - [x] First blocking pipe waiter path: empty pipe reads with live writers and
   full pipe writes now park the current process in a pipe wait queue and wake
-  waiters on the opposite endpoint when data or space becomes available. Until
-  general scheduler run queues exist, the syscall returns `EAGAIN` after
-  parking so in-kernel tests can drive the state transition explicitly. The
+  waiters on the opposite endpoint when data or space becomes available. The
+  syscall still returns `EAGAIN` after parking until blocked syscalls can save
+  enough continuation state to resume transparently. The
   `syscall_pipe_blocking` test covers reader and writer park/wake behavior.
 - [ ] `fork` is deferred. Unix fork semantics are still misleading without
   copy-on-write and a scheduler that can run separate address spaces; prefer
   `posix_spawn` as the next process-creation slice.
-- [ ] General scheduler run queues. Blocking `wait4` can run the spawned child
-  it is waiting for, but the kernel still lacks a scheduler that can choose
-  among independent runnable processes.
+- [x] General scheduler run queues. Runnable processes now enter a FIFO
+  scheduler queue on spawn/wake, leave it when blocked/exited/selected, and
+  direct switches requeue the previous runner when it remains runnable. The
+  `process_run_queue` test covers ordering, wake enqueueing, and switch
+  dequeue behavior. The scheduler is still cooperative; timer-driven
+  preemption and full syscall blocking/resume remain later work.
 
 ## Phase 11 — Tiny shell
 
@@ -323,9 +326,9 @@ The next thing to do, concretely:
 1. Source `.env`, then run `ci/local.sh` to confirm the Phase 10 smoke
    still passes.
 2. Read the Phase 10 notes above.
-3. Continue Phase 10 from the first blocking pipe waiter path.
-4. Add general scheduler run queues after the first blocking pipe path gives
-   the kernel something to block and wake.
+3. Continue Phase 10 from the cooperative scheduler/run-queue slice.
+4. Decide whether to make pipe reads/writes resume through the scheduler now
+   or keep that for the next process slice.
 5. Decide how writable files should fit the current read-only initramfs/memfs
    model before expanding inode write support.
 

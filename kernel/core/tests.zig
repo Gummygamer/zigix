@@ -90,6 +90,11 @@ pub const TEST_process_scheduler_groundwork = testing.Test{
     .run = processSchedulerGroundwork,
 };
 
+pub const TEST_process_run_queue = testing.Test{
+    .name = "process_run_queue",
+    .run = processRunQueue,
+};
+
 pub const TEST_process_spawn_resume = testing.Test{
     .name = "process_spawn_resume",
     .run = processSpawnResume,
@@ -600,6 +605,62 @@ fn processSchedulerGroundwork() testing.TestError!void {
     const waited = syscall.dispatch.invoke(syscall.numbers.wait4, child, 0, 0, 0, 0, 0);
     if (waited != child) return error.ProcessSchedulerChildReapFailed;
     if (proc.runState(child) != null) return error.ProcessSchedulerChildSurvivedReap;
+}
+
+fn processRunQueue() testing.TestError!void {
+    const parent = proc.currentPid();
+    if (proc.runnableQueueLen() != 0) return error.ProcessRunQueueDirty;
+
+    const first = try proc.spawnChild(parent);
+    const second = try proc.spawnChild(parent);
+    var first_reaped = false;
+    var second_reaped = false;
+    errdefer {
+        if (proc.currentPid() != parent) {
+            proc.switchTo(parent) catch {};
+        }
+        if (!first_reaped and proc.runState(first) != null) {
+            _ = proc.markExited(first, 1);
+            _ = syscall.dispatch.invoke(syscall.numbers.wait4, first, 0, 0, 0, 0, 0);
+        }
+        if (!second_reaped and proc.runState(second) != null) {
+            _ = proc.markExited(second, 1);
+            _ = syscall.dispatch.invoke(syscall.numbers.wait4, second, 0, 0, 0, 0, 0);
+        }
+    }
+
+    if (proc.runnableQueueLen() != 2) return error.ProcessRunQueueSpawnLenWrong;
+    if (proc.nextRunnable() != first) return error.ProcessRunQueueSpawnOrderWrong;
+
+    const switched_first = try proc.switchToNext() orelse return error.ProcessRunQueueSwitchMissing;
+    if (switched_first != first) return error.ProcessRunQueueSwitchWrongPid;
+    if (proc.currentPid() != first) return error.ProcessRunQueueSwitchWrongCurrent;
+    if (proc.runState(parent) != .runnable) return error.ProcessRunQueueParentNotQueued;
+    if (proc.nextRunnable() != second) return error.ProcessRunQueueSecondNotNext;
+
+    try proc.block(second);
+    if (proc.nextRunnable() != parent) return error.ProcessRunQueueBlockDidNotRemove;
+
+    try proc.wake(second);
+    if (proc.nextRunnable() != parent) return error.ProcessRunQueueWakeWrongOrder;
+    if (proc.runnableQueueLen() != 2) return error.ProcessRunQueueWakeLenWrong;
+
+    const switched_parent = try proc.switchToNext() orelse return error.ProcessRunQueueParentSwitchMissing;
+    if (switched_parent != parent) return error.ProcessRunQueueParentSwitchWrongPid;
+    if (proc.currentPid() != parent) return error.ProcessRunQueueParentSwitchWrongCurrent;
+    if (proc.nextRunnable() != second) return error.ProcessRunQueueWakeDidNotEnqueue;
+
+    if (!proc.markExited(first, 0)) return error.ProcessRunQueueFirstExitFailed;
+    var status: i32 = 0;
+    const waited_first = syscall.dispatch.invoke(syscall.numbers.wait4, first, @intFromPtr(&status), 0, 0, 0, 0);
+    if (waited_first != first) return error.ProcessRunQueueFirstReapFailed;
+    first_reaped = true;
+
+    if (!proc.markExited(second, 0)) return error.ProcessRunQueueSecondExitFailed;
+    const waited_second = syscall.dispatch.invoke(syscall.numbers.wait4, second, @intFromPtr(&status), 0, 0, 0, 0);
+    if (waited_second != second) return error.ProcessRunQueueSecondReapFailed;
+    second_reaped = true;
+    if (proc.runnableQueueLen() != 0) return error.ProcessRunQueueNotDrained;
 }
 
 fn processSpawnResume() testing.TestError!void {

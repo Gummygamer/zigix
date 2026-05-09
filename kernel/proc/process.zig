@@ -75,9 +75,13 @@ pub const UserImage = struct {
 var table: [MAX_PROCESSES]Process = [_]Process{.{}} ** MAX_PROCESSES;
 var next_pid: Pid = 1;
 var current_pid: Pid = 1;
+var run_queue: [MAX_PROCESSES]Pid = [_]Pid{0} ** MAX_PROCESSES;
+var run_queue_head: usize = 0;
+var run_queue_count: usize = 0;
 
 pub fn init() void {
     for (&table) |*slot| slot.* = .{};
+    clearRunQueue();
     next_pid = 1;
     const init_pid = allocatePid();
     table[0] = .{
@@ -113,12 +117,31 @@ pub fn switchTo(pid: Pid) Error!void {
     if (next.state != .runnable) return error.NoProcess;
 
     const previous = find(current_pid) orelse return error.NoProcess;
+    _ = removeFromRunQueue(pid);
     if (previous.state == .running) previous.state = .runnable;
+    if (previous.state == .runnable) try enqueueRunnable(previous.pid);
 
     next.state = .running;
     current_pid = pid;
     mm.paging.switchAddressSpace(next.address_space);
     arch.gdt.setKernelStackTop(next.kernel_stack.top());
+}
+
+pub fn nextRunnable() ?Pid {
+    pruneRunQueue();
+    if (run_queue_count == 0) return null;
+    return run_queue[run_queue_head];
+}
+
+pub fn runnableQueueLen() usize {
+    pruneRunQueue();
+    return run_queue_count;
+}
+
+pub fn switchToNext() Error!?Pid {
+    const pid = nextRunnable() orelse return null;
+    try switchTo(pid);
+    return pid;
 }
 
 pub fn addressSpace(pid: Pid) ?mm.paging.AddressSpace {
@@ -180,6 +203,7 @@ pub fn finishSpawnResume(parent: Pid, child: Pid) void {
     parent_proc.resume_context = .{};
     if (parent_proc.state == .blocked) {
         parent_proc.state = if (current_pid == parent) .running else .runnable;
+        if (parent_proc.state == .runnable) enqueueRunnable(parent) catch {};
     }
 }
 
@@ -187,6 +211,7 @@ pub fn exitCurrent(status: u64) ?SpawnResume {
     const child = find(current_pid) orelse return null;
     if (child.state == .free) return null;
 
+    _ = removeFromRunQueue(child.pid);
     child.state = .exited;
     child.exit_status = @truncate(status);
 
@@ -196,6 +221,7 @@ pub fn exitCurrent(status: u64) ?SpawnResume {
     if (parent.state != .blocked and parent.state != .runnable and parent.state != .running) return null;
 
     parent.state = .running;
+    _ = removeFromRunQueue(parent.pid);
     current_pid = parent.pid;
     mm.paging.switchAddressSpace(parent.address_space);
     arch.gdt.setKernelStackTop(parent.kernel_stack.top());
@@ -209,7 +235,10 @@ pub fn exitCurrent(status: u64) ?SpawnResume {
 pub fn block(pid: Pid) Error!void {
     const proc = find(pid) orelse return error.NoProcess;
     switch (proc.state) {
-        .runnable, .running => proc.state = .blocked,
+        .runnable, .running => {
+            _ = removeFromRunQueue(pid);
+            proc.state = .blocked;
+        },
         .blocked => {},
         .free, .exited => return error.NoProcess,
     }
@@ -218,7 +247,13 @@ pub fn block(pid: Pid) Error!void {
 pub fn wake(pid: Pid) Error!void {
     const proc = find(pid) orelse return error.NoProcess;
     switch (proc.state) {
-        .blocked => proc.state = .runnable,
+        .blocked => {
+            proc.state = .runnable;
+            enqueueRunnable(pid) catch |err| {
+                proc.state = .blocked;
+                return err;
+            };
+        },
         .runnable, .running => {},
         .free, .exited => return error.NoProcess,
     }
@@ -271,7 +306,8 @@ pub fn spawnChild(parent: Pid) Error!Pid {
         error.Unsupported => error.Unsupported,
         error.AlreadyMapped, error.NotAligned, error.NotMapped => error.InvalidArgument,
     };
-    errdefer mm.paging.destroyUserAddressSpace(address_space);
+    var address_space_owned = true;
+    errdefer if (address_space_owned) mm.paging.destroyUserAddressSpace(address_space);
 
     const kernel_stack = allocateKernelStack() catch return error.OutOfMemory;
     const pid = allocatePid();
@@ -282,12 +318,20 @@ pub fn spawnChild(parent: Pid) Error!Pid {
         .address_space = address_space,
         .kernel_stack = kernel_stack,
     };
+    enqueueRunnable(pid) catch |err| {
+        address_space_owned = false;
+        releaseProcessResources(slot);
+        slot.* = .{};
+        return err;
+    };
+    address_space_owned = false;
     return pid;
 }
 
 pub fn markExited(pid: Pid, status: u64) bool {
     const proc = find(pid) orelse return false;
     if (proc.state == .free) return false;
+    _ = removeFromRunQueue(pid);
     proc.state = .exited;
     proc.exit_status = @truncate(status);
     wakeWaitingParent(proc);
@@ -334,7 +378,10 @@ fn wakeWaitingParent(child: *Process) void {
     const parent_pid = child.parent orelse return;
     const parent = find(parent_pid) orelse return;
     if (parent.resume_child != child.pid) return;
-    if (parent.state == .blocked) parent.state = .runnable;
+    if (parent.state == .blocked) {
+        parent.state = .runnable;
+        enqueueRunnable(parent.pid) catch {};
+    }
 }
 
 fn findExitedChild(parent: Pid, requested_pid: i64) ?*Process {
@@ -397,4 +444,80 @@ fn allocatePid() Pid {
     next_pid += 1;
     if (next_pid == 0) next_pid = 1;
     return pid;
+}
+
+fn clearRunQueue() void {
+    @memset(run_queue[0..], 0);
+    run_queue_head = 0;
+    run_queue_count = 0;
+}
+
+fn enqueueRunnable(pid: Pid) Error!void {
+    if (pid == 0) return;
+    const proc = find(pid) orelse return error.NoProcess;
+    if (proc.state != .runnable) return error.NoProcess;
+    if (isQueued(pid)) return;
+    if (run_queue_count >= run_queue.len) return error.TableFull;
+
+    const tail = (run_queue_head + run_queue_count) % run_queue.len;
+    run_queue[tail] = pid;
+    run_queue_count += 1;
+}
+
+fn removeFromRunQueue(pid: Pid) bool {
+    var kept: [MAX_PROCESSES]Pid = [_]Pid{0} ** MAX_PROCESSES;
+    var kept_count: usize = 0;
+    var removed = false;
+
+    var index: usize = 0;
+    while (index < run_queue_count) : (index += 1) {
+        const queued = run_queue[(run_queue_head + index) % run_queue.len];
+        if (queued == pid) {
+            removed = true;
+            continue;
+        }
+        kept[kept_count] = queued;
+        kept_count += 1;
+    }
+
+    clearRunQueue();
+    while (run_queue_count < kept_count) : (run_queue_count += 1) {
+        run_queue[run_queue_count] = kept[run_queue_count];
+    }
+    return removed;
+}
+
+fn pruneRunQueue() void {
+    var kept: [MAX_PROCESSES]Pid = [_]Pid{0} ** MAX_PROCESSES;
+    var kept_count: usize = 0;
+
+    var index: usize = 0;
+    while (index < run_queue_count) : (index += 1) {
+        const pid = run_queue[(run_queue_head + index) % run_queue.len];
+        const proc = find(pid) orelse continue;
+        if (proc.state != .runnable) continue;
+        if (containsPid(kept[0..kept_count], pid)) continue;
+        kept[kept_count] = pid;
+        kept_count += 1;
+    }
+
+    clearRunQueue();
+    while (run_queue_count < kept_count) : (run_queue_count += 1) {
+        run_queue[run_queue_count] = kept[run_queue_count];
+    }
+}
+
+fn isQueued(pid: Pid) bool {
+    var index: usize = 0;
+    while (index < run_queue_count) : (index += 1) {
+        if (run_queue[(run_queue_head + index) % run_queue.len] == pid) return true;
+    }
+    return false;
+}
+
+fn containsPid(pids: []const Pid, pid: Pid) bool {
+    for (pids) |item| {
+        if (item == pid) return true;
+    }
+    return false;
 }
