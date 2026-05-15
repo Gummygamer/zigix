@@ -4,7 +4,7 @@ const libc = @import("zigix_newlib");
 const sys = @import("zigix_sys");
 
 export fn _start() callconv(.c) noreturn {
-    const argv = [_]?[*:0]const u8{ "/tinysh", "-c", "/exec-ok", null };
+    const argv = [_]?[*:0]const u8{ "/tinysh", "-c", "exec-ok", null };
     const envp = [_]?[*:0]const u8{ "ZIGIX_PHASE=11", null };
 
     _ = sys.write(sys.STDOUT, "[ZIGIX:INIT:START]\n");

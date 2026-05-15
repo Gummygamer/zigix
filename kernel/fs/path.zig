@@ -62,6 +62,28 @@ pub fn normalizeInto(input: []const u8, out: []u8) Error![]const u8 {
     return out[0..used];
 }
 
+pub fn resolveInto(cwd: []const u8, input: []const u8, out: []u8) Error![]const u8 {
+    if (input.len == 0) return error.EmptyPath;
+    if (input[0] == '/') return normalizeInto(input, out);
+
+    var joined: [MAX_PATH_BYTES]u8 = undefined;
+    if (cwd.len == 0 or cwd[0] != '/') return error.NotAbsolute;
+    if (cwd.len > joined.len) return error.PathTooLong;
+
+    @memcpy(joined[0..cwd.len], cwd);
+    var used = cwd.len;
+    if (used != 1) {
+        if (used == joined.len) return error.PathTooLong;
+        joined[used] = '/';
+        used += 1;
+    }
+    if (used + input.len > joined.len) return error.PathTooLong;
+    @memcpy(joined[used .. used + input.len], input);
+    used += input.len;
+
+    return normalizeInto(joined[0..used], out);
+}
+
 pub const Iterator = struct {
     path: []const u8,
     cursor: usize = 1,

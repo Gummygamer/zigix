@@ -192,12 +192,19 @@ pub const PreparedSpawn = struct {
 
 pub const Process = struct {
     fd_table: [MAX_FDS]?Descriptor = [_]?Descriptor{null} ** MAX_FDS,
+    cwd_buffer: [fs.path.MAX_PATH_BYTES]u8 = [_]u8{0} ** fs.path.MAX_PATH_BYTES,
+    cwd_len: usize = 1,
+    path_scratch: [fs.path.MAX_PATH_BYTES]u8 = [_]u8{0} ** fs.path.MAX_PATH_BYTES,
 
     pub fn init(self: *Process) void {
         for (&self.fd_table) |*slot| slot.* = null;
         self.fd_table[0] = .{ .target = .stdin };
         self.fd_table[1] = .{ .target = .stdout };
         self.fd_table[2] = .{ .target = .stderr };
+        @memset(&self.cwd_buffer, 0);
+        @memset(&self.path_scratch, 0);
+        self.cwd_buffer[0] = '/';
+        self.cwd_len = 1;
     }
 
     fn cloneFrom(self: *Process, parent: *const Process) void {
@@ -208,6 +215,23 @@ pub const Process = struct {
             retainTarget(descriptor.target);
             self.fd_table[fd] = descriptor;
         }
+        self.cwd_buffer = parent.cwd_buffer;
+        self.cwd_len = parent.cwd_len;
+        @memset(&self.path_scratch, 0);
+    }
+
+    fn cwd(self: *const Process) []const u8 {
+        return self.cwd_buffer[0..self.cwd_len];
+    }
+
+    fn resolvePath(self: *Process, input: []const u8) fs.path.Error![]const u8 {
+        return fs.path.resolveInto(self.cwd(), input, &self.path_scratch);
+    }
+
+    fn setCwd(self: *Process, absolute_path: []const u8) void {
+        @memset(&self.cwd_buffer, 0);
+        @memcpy(self.cwd_buffer[0..absolute_path.len], absolute_path);
+        self.cwd_len = absolute_path.len;
     }
 
     fn get(self: *Process, fd: usize) ?Descriptor {
@@ -314,6 +338,7 @@ pub fn invoke(num: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64, a
         numbers.execve => sysExecve(arg0, arg1, arg2),
         numbers.exit => sysExit(arg0),
         numbers.wait4 => sysWait4(arg0, arg1, arg2, arg3),
+        numbers.chdir => sysChdir(arg0),
         numbers.exit_group => sysExit(arg0),
         numbers.posix_spawn => sysPosixSpawn(arg0, arg1, arg2),
         else => errno.fail(errno.NOSYS),
@@ -420,7 +445,8 @@ fn sysOpen(path_ptr: u64, flags: u64, mode: u64) i64 {
     const process = currentProcess() orelse return errno.fail(errno.SRCH);
     if ((flags & ~O_CLOEXEC) != 0) return errno.fail(errno.INVAL);
 
-    const path = userCString(path_ptr) orelse return errno.fail(errno.FAULT);
+    const raw_path = userCString(path_ptr) orelse return errno.fail(errno.FAULT);
+    const path = process.resolvePath(raw_path) catch |err| return mapPathError(err);
     const file = fs.vfs.open(path) catch |err| return mapFsError(err);
     const open_file = allocOpenFile(file) orelse return errno.fail(errno.NFILE);
     const slot = process.install(.{
@@ -464,7 +490,9 @@ fn sysLseek(fd_arg: u64, offset_arg: u64, whence: u64) i64 {
 }
 
 fn sysStat(path_ptr: u64, stat_ptr: u64) i64 {
-    const path = userCString(path_ptr) orelse return errno.fail(errno.FAULT);
+    const process = currentProcess() orelse return errno.fail(errno.SRCH);
+    const raw_path = userCString(path_ptr) orelse return errno.fail(errno.FAULT);
+    const path = process.resolvePath(raw_path) catch |err| return mapPathError(err);
     const out = userStat(stat_ptr) orelse return errno.fail(errno.FAULT);
     const inode = fs.vfs.lookup(path) catch |err| return mapFsError(err);
     out.* = statFor(inode);
@@ -525,7 +553,9 @@ fn sysDup2(old_fd_arg: u64, new_fd_arg: u64) i64 {
 }
 
 fn sysExecve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) i64 {
-    const path = userCString(path_ptr) orelse return errno.fail(errno.FAULT);
+    const process = currentProcess() orelse return errno.fail(errno.SRCH);
+    const raw_path = userCString(path_ptr) orelse return errno.fail(errno.FAULT);
+    const path = process.resolvePath(raw_path) catch |err| return mapPathError(err);
     const args = copyExecArgs(argv_ptr, envp_ptr) catch |err| return errno.fail(switch (err) {
         error.Fault => errno.FAULT,
         error.TooLong, error.TooMany => errno.BIG,
@@ -540,7 +570,6 @@ fn sysExecve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) i64 {
         .envp = args.envp(&envp_slices),
     }) catch |err| return mapExecError(err);
 
-    const process = currentProcess() orelse return errno.fail(errno.SRCH);
     process.closeOnExec();
     arch.user.enter(image.entry, image.stack_top);
 }
@@ -569,6 +598,16 @@ fn sysWait4(pid_arg: u64, status_ptr: u64, options: u64, rusage_ptr: u64) i64 {
         });
     };
     return @intCast(waited);
+}
+
+fn sysChdir(path_ptr: u64) i64 {
+    const process = currentProcess() orelse return errno.fail(errno.SRCH);
+    const raw_path = userCString(path_ptr) orelse return errno.fail(errno.FAULT);
+    const path = process.resolvePath(raw_path) catch |err| return mapPathError(err);
+    const inode = fs.vfs.lookup(path) catch |err| return mapFsError(err);
+    if (inode.kind != .dir) return errno.fail(errno.NOTDIR);
+    process.setCwd(path);
+    return 0;
 }
 
 fn runChildForBlockingWait(caller: proc.Pid, requested_pid: i64, status_out: ?*i32, options: u64) i64 {
@@ -786,7 +825,9 @@ pub fn cleanupPreparedSpawnForTest(pid: proc.Pid) void {
 
 fn preparePosixSpawn(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) !PreparedSpawn {
     const parent = proc.currentPid();
-    const path = userCString(path_ptr) orelse return error.Fault;
+    const process = currentProcess() orelse return error.NoProcess;
+    const raw_path = userCString(path_ptr) orelse return error.Fault;
+    const path = try process.resolvePath(raw_path);
     const args = try copyExecArgs(argv_ptr, envp_ptr);
     const inode = try fs.vfs.lookup(path);
     const child = try proc.spawnChild(parent);
@@ -896,6 +937,13 @@ fn userInt(ptr: u64) ?*i32 {
     return @ptrFromInt(ptr);
 }
 
+fn mapPathError(err: fs.path.Error) i64 {
+    return errno.fail(switch (err) {
+        error.EmptyPath, error.NotAbsolute => errno.INVAL,
+        error.PathTooLong, error.TooManyComponents => errno.NAMETOOLONG,
+    });
+}
+
 fn mapFsError(err: fs.vfs.Error) i64 {
     return errno.fail(switch (err) {
         error.NotMounted => errno.IO,
@@ -925,6 +973,8 @@ fn mapSpawnError(err: anyerror) i64 {
     return errno.fail(switch (err) {
         error.Fault => errno.FAULT,
         error.TooLong, error.TooMany, error.UserStackOverflow => errno.BIG,
+        error.EmptyPath, error.NotAbsolute => errno.INVAL,
+        error.TooManyComponents => errno.NAMETOOLONG,
         error.NotMounted => errno.IO,
         error.NotFound => errno.NOENT,
         error.NotDirectory => errno.NOTDIR,

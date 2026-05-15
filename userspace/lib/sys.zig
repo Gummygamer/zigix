@@ -17,6 +17,7 @@ pub const SYS_dup2: u64 = 33;
 pub const SYS_execve: u64 = 59;
 pub const SYS_exit: u64 = 60;
 pub const SYS_wait4: u64 = 61;
+pub const SYS_chdir: u64 = 80;
 pub const SYS_exit_group: u64 = 231;
 pub const SYS_posix_spawn: u64 = 4000;
 
@@ -26,6 +27,8 @@ pub const EBADF: i32 = 9;
 pub const EAGAIN: i32 = 11;
 pub const ENOMEM: i32 = 12;
 pub const EFAULT: i32 = 14;
+pub const ENOTDIR: i32 = 20;
+pub const ENOENT: i32 = 2;
 pub const EINVAL: i32 = 22;
 pub const ENFILE: i32 = 23;
 pub const ENOTTY: i32 = 25;
@@ -112,6 +115,10 @@ pub fn wait4(pid: i64, status: ?*i32, options: u64, rusage: ?*anyopaque) i64 {
 
 pub fn waitpid(pid: i64, status: ?*i32, options: u64) i64 {
     return wait4(pid, status, options, null);
+}
+
+pub fn chdir(path: [*:0]const u8) i64 {
+    return syscall1(SYS_chdir, @intFromPtr(path));
 }
 
 pub fn exit(status: u64) noreturn {

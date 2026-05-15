@@ -27,13 +27,17 @@ freestanding ring-3 `/init`, runs `/tinysh -c /exec-ok` for the Phase 11
 non-interactive shell smoke path, and runs an interactive scripted
 `/tinysh` session for Phase 12. Phase 13 chooses newlib as the first libc
 target and adds a minimal `userspace/libc_shim/` syscall hook layer. The
-first Phase 14 POSIX-expansion slice adds `dup2` with the marker
-`[ZIGIX:TEST:PASS:syscall_dup2]`. The Phase 13 marker remains
+first Phase 14 shell/POSIX usability slices add `dup2` and `chdir` with the
+markers `[ZIGIX:TEST:PASS:syscall_dup2]` and
+`[ZIGIX:TEST:PASS:syscall_chdir]`. Relative `open`, `stat`, `execve`, and
+`posix_spawn` paths now resolve against per-process cwd, and `tinysh` has a
+`cd` builtin. The Phase 13 marker remains
 `[ZIGIX:TEST:PASS:libc_shim_newlib]`, emitted by `/init` through the newlib
 `_write` hook. The Phase 12 interactive marker remains
 `[ZIGIX:TEST:PASS:tinysh_interactive]`, emitted after `tinysh` reads
-`/exec-ok` from serial stdin, starts it with `posix_spawn`, waits for it with
-`waitpid`, reads `exit`, and terminates cleanly.
+`cd /`, runs relative `exec-ok` from serial stdin, starts it with
+`posix_spawn`, waits for it with `waitpid`, reads `exit`, and terminates
+cleanly.
 
 The kernel has per-process descriptor tables, `dup`, close-on-exec metadata,
 basic pipe read/write coverage, process-table/PID lifecycle coverage,

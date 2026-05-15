@@ -68,6 +68,11 @@ const CommandAction = enum {
 fn runCommand(parsed: ParsedCommand, marker_name: []const u8) CommandAction {
     const command = cStringSlice(parsed.argv[0].?);
     if (eql(command, "exit")) return .exit;
+    if (eql(command, "cd")) {
+        if (parsed.argc != 2) fail(marker_name, "cd");
+        if (sys.chdir(parsed.argv[1].?) != 0) fail(marker_name, "cd");
+        return .continue_loop;
+    }
 
     const pid = sys.posixSpawn(parsed.argv[0].?, @intFromPtr(parsed.argv), 0);
     if (pid <= 0) fail(marker_name, "spawn");

@@ -42,6 +42,11 @@ pub export fn _dup2(old_fd: i32, new_fd: i32) i32 {
     return @intCast(abi.syscallResult(sys.dup2(old_arg, new_arg), &errno));
 }
 
+pub export fn _chdir(path: ?[*:0]const u8) i32 {
+    if (path == null) return @intCast(abi.fail(sys.EFAULT, &errno));
+    return @intCast(abi.syscallResult(sys.chdir(path.?), &errno));
+}
+
 pub export fn _lseek(fd: i32, offset: isize, whence: i32) isize {
     const fd_arg = fdArg(fd) orelse return -1;
     if (whence < 0) return abi.fail(sys.EINVAL, &errno);

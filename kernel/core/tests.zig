@@ -55,6 +55,11 @@ pub const TEST_syscall_dup2 = testing.Test{
     .run = syscallDup2,
 };
 
+pub const TEST_syscall_chdir = testing.Test{
+    .name = "syscall_chdir",
+    .run = syscallChdir,
+};
+
 pub const TEST_syscall_pipe = testing.Test{
     .name = "syscall_pipe",
     .run = syscallPipe,
@@ -347,6 +352,30 @@ fn syscallDup2() testing.TestError!void {
     }
     if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(replacement_fd), 0, 0, 0, 0, 0) != 0) {
         return error.SyscallCloseFailed;
+    }
+}
+
+fn syscallChdir() testing.TestError!void {
+    const root = "/\x00";
+    const relative_exec = "exec-ok\x00";
+    const file = "/exec-ok\x00";
+    const missing = "/missing\x00";
+
+    if (syscall.dispatch.invoke(syscall.numbers.chdir, @intFromPtr(root.ptr), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallChdirRootFailed;
+    }
+
+    const fd = syscall.dispatch.invoke(syscall.numbers.open, @intFromPtr(relative_exec.ptr), 0, 0, 0, 0, 0);
+    if (fd < 3) return error.SyscallRelativeOpenFailed;
+    if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(fd), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallCloseFailed;
+    }
+
+    if (syscall.dispatch.invoke(syscall.numbers.chdir, @intFromPtr(file.ptr), 0, 0, 0, 0, 0) != -syscall.errno.NOTDIR) {
+        return error.SyscallChdirFileAccepted;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.chdir, @intFromPtr(missing.ptr), 0, 0, 0, 0, 0) != -syscall.errno.NOENT) {
+        return error.SyscallChdirMissingAccepted;
     }
 }
 

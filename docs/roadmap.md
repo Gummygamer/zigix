@@ -27,9 +27,10 @@ rejected.
 | 11    | Tiny shell                           | done         | `[ZIGIX:TEST:PASS:tinysh_smoke]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 12    | Interactive console shell            | done         | `[ZIGIX:TEST:PASS:tinysh_interactive]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 13    | libc strategy                        | done         | `[ZIGIX:TEST:PASS:libc_shim_newlib]` |
-| 14    | POSIX expansion                      | in progress  | `[ZIGIX:TEST:PASS:syscall_dup2]` |
-| 15    | BusyBox or Toybox port               | pending      | per-phase markers TBD |
-| 16    | GNU tools later                      | pending      | per-phase markers TBD |
+| 14    | Shell/POSIX usability                | in progress  | `[ZIGIX:TEST:PASS:syscall_dup2]`, `[ZIGIX:TEST:PASS:syscall_chdir]` |
+| 15    | Portability substrate                | pending      | per-phase markers TBD |
+| 16    | BusyBox or Toybox port               | pending      | per-phase markers TBD |
+| 17    | GNU tools later                      | pending      | per-phase markers TBD |
 
 ## Phase 0 — Toolchain and smoke-test skeleton ✅
 
@@ -449,22 +450,65 @@ Intentional limits:
 - The shim targets source compatibility for a future newlib build; it is not
   a hosted C runtime yet.
 
-## Phase 14 — POSIX expansion
+## Phase 14 — Shell/POSIX usability
+
+Phase 14 is no longer a grab bag of POSIX syscalls. The current system has a
+working shell, `posix_spawn`, descriptor isolation, and a first libc shim; the
+next useful work is making that shell and shim behave like a small Unix
+environment before attempting third-party userspace.
+
+Acceptance for each item is a QEMU marker or a host test. Pull only the syscall
+surface needed by a visible shell/libc behavior.
 
 - [x] `dup2`: duplicate an open descriptor onto a requested descriptor,
       close the replaced target, preserve same-fd no-op semantics, and clear
       close-on-exec on new duplicates. Marker:
       `[ZIGIX:TEST:PASS:syscall_dup2]`.
-- [ ] `chdir`
-- [ ] signals (subset: `SIGINT`, `SIGTERM`, `SIGCHLD`)
-- [ ] more file ops (`unlink`, `rename`, `mkdir`)
+- [x] `chdir` and per-process cwd inheritance: relative `open`, `stat`,
+      `execve`, and `posix_spawn` resolve against cwd; `tinysh` has a `cd`
+      builtin; the scripted interactive smoke uses `cd /` followed by a
+      relative `exec-ok`. Marker: `[ZIGIX:TEST:PASS:syscall_chdir]`.
+- [ ] `getpid`/`getppid`: replace libc shim placeholders and let shell/tests
+      observe real process identity.
+- [ ] `readdir`/`getdents64`: needed before `ls`-style utilities or a useful
+      shell directory listing can exist.
+- [ ] Minimal writable memfs operations: `mkdir`, `unlink`, `rename`, and
+      write/truncate on memfs files, with inode-backed file descriptor tests.
+- [ ] Shell redirection: `cmd > file`, `cmd < file`, and descriptor setup for
+      spawned children. This should depend on writable memfs and `dup2`.
+- [ ] Signals only after there is a caller: start with process-directed
+      `SIGTERM`/`SIGCHLD` semantics before terminal `SIGINT`.
 
-## Phase 15 — BusyBox or Toybox port
+Deferred from Phase 14 unless a concrete test forces them:
 
-- First serious userspace beyond hand-written stubs. Port the smaller
-  one first.
+- Timer-driven preemption.
+- Transparent blocking syscall resume.
+- `fork`.
+- Real terminal modes, job control, command history, globbing, and quoting.
 
-## Phase 16 — GNU tools later
+## Phase 15 — Portability substrate
+
+Phase 15 prepares the first third-party userspace build. It should close the
+small ABI gaps that cause configure/build probes to fail before attempting a
+BusyBox/Toybox tree.
+
+- Expand `userspace/libc_shim/` toward the syscall hooks newlib expects:
+  `_getpid`, `_gettimeofday` or a deliberate `ENOSYS`, `_times`, `_sbrk`
+  backed by a userspace heap contract, and directory hooks once `getdents64`
+  exists.
+- Add a small compatibility test program built through the libc shim, not just
+  direct Zig syscall wrappers.
+- Document unsupported-but-intentional POSIX behavior in `docs/posix-compat.md`
+  as failures are found.
+
+## Phase 16 — BusyBox or Toybox port
+
+- First serious userspace beyond hand-written stubs. Port the smaller one
+  first.
+- Keep the first target narrow: one static binary, one applet that exercises
+  cwd, directory reads, stdio, and process wait semantics.
+
+## Phase 17 — GNU tools later
 
 - Only after BusyBox/Toybox runs cleanly on the kernel. coreutils,
   bash, etc.
@@ -488,8 +532,8 @@ The next thing to do, concretely:
 1. Source `.env`, then run `ci/local.sh` to confirm the Phase 14 smoke
    and the Phase 12 scripted interactive smoke still pass from the current
    checkout.
-2. Continue Phase 14 POSIX expansion with `chdir` or the next syscall that
-   unblocks a concrete shell or porting behavior.
+2. Continue Phase 14 with `getpid`/`getppid` or `getdents64`; choose the one
+   with the clearest shell/libc smoke marker.
 3. Keep transparent blocking syscall resume on the deferred list unless the
    newlib port or Phase 14 work exposes a concrete need for it.
 

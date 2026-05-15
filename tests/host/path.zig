@@ -26,3 +26,17 @@ test "path normalization rejects invalid inputs" {
     var tiny: [4]u8 = undefined;
     try std.testing.expectError(error.PathTooLong, path.normalizeInto("/abcd", &tiny));
 }
+
+fn expectResolve(cwd: []const u8, input: []const u8, expected: []const u8) !void {
+    var buffer: [path.MAX_PATH_BYTES]u8 = undefined;
+    const actual = try path.resolveInto(cwd, input, &buffer);
+    try std.testing.expectEqualStrings(expected, actual);
+}
+
+test "path resolution applies cwd to relative inputs" {
+    try expectResolve("/", "init", "/init");
+    try expectResolve("/bin", "init", "/bin/init");
+    try expectResolve("/bin/tools", "../init", "/bin/init");
+    try expectResolve("/bin", "./../init", "/init");
+    try expectResolve("/bin", "/absolute/../init", "/init");
+}

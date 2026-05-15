@@ -62,6 +62,7 @@ The syscall layer uses Linux errno numbers for the exposed set:
 | 59 | `execve` | `int execve(const char *path, char *const argv[], char *const envp[])` |
 | 60 | `exit` | `void exit(int status)` |
 | 61 | `wait4` | `pid_t wait4(pid_t pid, int *wstatus, int options, void *rusage)` |
+| 80 | `chdir` | `int chdir(const char *path)` |
 | 231 | `exit_group` | `void exit_group(int status)` |
 | 4000 | `posix_spawn` | `int posix_spawn(const char *path, char *const argv[], char *const envp[])` |
 
@@ -83,7 +84,8 @@ Errors: `EBADF`, `EFAULT`, `EPIPE`.
 
 ### `open`
 
-Opens an absolute VFS path read-only. `flags` may be `0` or `O_CLOEXEC`
+Opens a VFS path read-only. Relative paths resolve against the caller's current
+working directory. `flags` may be `0` or `O_CLOEXEC`
 (`02000000`); `mode` is ignored. Returned descriptors use the process file
 table and start at `3` while standard descriptors are still open.
 
@@ -142,7 +144,7 @@ Errors: `EBADF`.
 
 ### `execve`
 
-Loads a static ELF64 executable from an absolute VFS path and enters it in ring
+Loads a static ELF64 executable from a VFS path and enters it in ring
 3. Phase 10 replaces the current user image and stack pages, accepts null or
 bounded `argv`/`envp` vectors, and builds the initial stack as:
 
@@ -162,10 +164,19 @@ successfully.
 
 Errors: `E2BIG`, `EFAULT`, `EINVAL`, `ENOENT`, `ENOEXEC`, VFS-mapped errors.
 
+### `chdir`
+
+Updates the current process working directory. Relative paths are resolved
+against the existing current directory and normalized before the target is
+validated. Spawned children inherit the parent's current directory through the
+per-process descriptor-table state.
+
+Errors: `EFAULT`, `EINVAL`, `ENAMETOOLONG`, `ENOENT`, `ENOTDIR`.
+
 ### `posix_spawn`
 
 Zigix exposes a temporary extension syscall for the Phase 10 spawn handoff. It
-creates a child PID, loads a static ELF64 executable from an absolute VFS path
+creates a child PID, loads a static ELF64 executable from a VFS path
 into the child's page-table root, builds the same bounded `argv`/`envp` stack
 shape as `execve`, records the child's initial entry/stack in the process
 table, and returns the child PID. The child runs when the parent performs a
