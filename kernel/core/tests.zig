@@ -50,6 +50,11 @@ pub const TEST_syscall_fd_table = testing.Test{
     .run = syscallFdTable,
 };
 
+pub const TEST_syscall_dup2 = testing.Test{
+    .name = "syscall_dup2",
+    .run = syscallDup2,
+};
+
 pub const TEST_syscall_pipe = testing.Test{
     .name = "syscall_pipe",
     .run = syscallPipe,
@@ -283,6 +288,64 @@ fn syscallFdTable() testing.TestError!void {
         return error.SyscallCloseFailed;
     }
     if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(cloexec_dup), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallCloseFailed;
+    }
+}
+
+fn syscallDup2() testing.TestError!void {
+    const path = "/init\x00";
+    const fd = syscall.dispatch.invoke(syscall.numbers.open, @intFromPtr(path.ptr), 0, 0, 0, 0, 0);
+    if (fd < 3) return error.SyscallOpenFailed;
+
+    const replacement_fd = syscall.dispatch.invoke(syscall.numbers.open, @intFromPtr(path.ptr), 0, 0, 0, 0, 0);
+    if (replacement_fd < 3 or replacement_fd == fd) return error.SyscallOpenFailed;
+
+    var magic: [4]u8 = undefined;
+    if (syscall.dispatch.invoke(syscall.numbers.read, @intCast(fd), @intFromPtr(&magic), magic.len, 0, 0, 0) != magic.len) {
+        return error.SyscallReadFailed;
+    }
+    if (!std.mem.eql(u8, &magic, "\x7fELF")) return error.SyscallReadWrongData;
+
+    if (syscall.dispatch.invoke(syscall.numbers.dup2, @intCast(fd), @intCast(replacement_fd), 0, 0, 0, 0) != replacement_fd) {
+        return error.SyscallDup2Failed;
+    }
+
+    var class_buf: [1]u8 = undefined;
+    if (syscall.dispatch.invoke(syscall.numbers.read, @intCast(replacement_fd), @intFromPtr(&class_buf), class_buf.len, 0, 0, 0) != class_buf.len) {
+        return error.SyscallDup2ReadFailed;
+    }
+    if (class_buf[0] != 2) return error.SyscallDup2DidNotShareOffset;
+
+    if (syscall.dispatch.invoke(syscall.numbers.dup2, 99, @intCast(replacement_fd), 0, 0, 0, 0) != -syscall.errno.BADF) {
+        return error.SyscallDup2InvalidOldFdAccepted;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.lseek, @intCast(replacement_fd), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallDup2InvalidOldClosedTarget;
+    }
+
+    const cloexec_fd = syscall.dispatch.invoke(syscall.numbers.open, @intFromPtr(path.ptr), syscall.dispatch.O_CLOEXEC, 0, 0, 0, 0);
+    if (cloexec_fd < 3) return error.SyscallCloexecOpenFailed;
+    if (syscall.dispatch.invoke(syscall.numbers.dup2, @intCast(cloexec_fd), @intCast(cloexec_fd), 0, 0, 0, 0) != cloexec_fd) {
+        return error.SyscallDup2SameFdFailed;
+    }
+    if (syscall.dispatch.fdCloseOnExecForTest(@intCast(cloexec_fd)) != true) {
+        return error.SyscallDup2SameFdChangedCloexec;
+    }
+
+    if (syscall.dispatch.invoke(syscall.numbers.dup2, @intCast(cloexec_fd), @intCast(replacement_fd), 0, 0, 0, 0) != replacement_fd) {
+        return error.SyscallDup2CloexecFailed;
+    }
+    if (syscall.dispatch.fdCloseOnExecForTest(@intCast(replacement_fd)) != false) {
+        return error.SyscallDup2PreservedCloexec;
+    }
+
+    if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(fd), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallCloseFailed;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(cloexec_fd), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallCloseFailed;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(replacement_fd), 0, 0, 0, 0, 0) != 0) {
         return error.SyscallCloseFailed;
     }
 }

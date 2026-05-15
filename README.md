@@ -20,12 +20,17 @@ OS with:
 
 ## Status
 
-Phase 12 is complete: Zigix boots under QEMU, initializes memory management
+Phase 14 has started: Zigix boots under QEMU, initializes memory management
 and interrupts, mounts a Multiboot-loaded initramfs on a small VFS/memfs root,
 installs syscall ABI v0, validates a static ELF64 load plan, maps and enters a
 freestanding ring-3 `/init`, runs `/tinysh -c /exec-ok` for the Phase 11
 non-interactive shell smoke path, and runs an interactive scripted
-`/tinysh` session for Phase 12. The Phase 12 marker is
+`/tinysh` session for Phase 12. Phase 13 chooses newlib as the first libc
+target and adds a minimal `userspace/libc_shim/` syscall hook layer. The
+first Phase 14 POSIX-expansion slice adds `dup2` with the marker
+`[ZIGIX:TEST:PASS:syscall_dup2]`. The Phase 13 marker remains
+`[ZIGIX:TEST:PASS:libc_shim_newlib]`, emitted by `/init` through the newlib
+`_write` hook. The Phase 12 interactive marker remains
 `[ZIGIX:TEST:PASS:tinysh_interactive]`, emitted after `tinysh` reads
 `/exec-ok` from serial stdin, starts it with `posix_spawn`, waits for it with
 `waitpid`, reads `exit`, and terminates cleanly.
@@ -66,7 +71,7 @@ The build entry points are intentionally thin:
 | `tools/toolchain/check-bun-zig.sh`     | Verify the Bun Zig toolchain is configured. Logs identity.       |
 | `tools/toolchain/zig-bun build check-toolchain` | Same check, via `build.zig`. Requires Bun Zig to run.   |
 | `tools/toolchain/zig-bun build host-test`       | Run host-side unit tests.                                       |
-| `tools/toolchain/zig-bun build qemu-smoke`      | Boot the kernel in QEMU and verify Phase 11 serial markers.     |
+| `tools/toolchain/zig-bun build qemu-smoke`      | Boot the kernel in QEMU and verify Phase 14 serial markers.     |
 | `tools/toolchain/zig-bun build qemu-smoke-scripted` | Boot QEMU with scripted COM1 input and verify Phase 12 interactive shell markers. |
 | `ci/local.sh`                          | Run all host-side checks.                                        |
 

@@ -1,10 +1,10 @@
 //! Zigix build orchestration.
 //!
-//! Phase 12 steps:
+//! Phase 14 steps:
 //!   * `check-toolchain`     -- runs the host-side toolchain check script.
 //!   * `kernel`              -- builds zig-out/bin/zigix-kernel (multiboot1 ELF).
 //!   * `validate-kernel-elf` -- sanity-checks the ELF (32-bit ELF check, multiboot magic).
-//!   * `qemu-smoke`          -- boots the kernel headlessly and parses Phase 11 serial markers.
+//!   * `qemu-smoke`          -- boots the kernel headlessly and parses Phase 14 serial markers.
 //!   * `qemu-smoke-scripted` -- boots with scripted COM1 input and parses Phase 12 markers.
 //!   * `host-test`           -- runs host-side unit tests.
 //!
@@ -230,7 +230,7 @@ pub fn build(b: *std.Build) void {
         "zigix-kernel.mb",
     );
 
-    // ── Phase 8/11 userspace init + initramfs ────────────────────────────
+    // ── Phase 8/14 userspace init + initramfs ───────────────────────────
     const userspace_sys_module = b.createModule(.{
         .root_source_file = b.path("userspace/lib/sys.zig"),
         .target = kernel_target,
@@ -243,6 +243,23 @@ pub fn build(b: *std.Build) void {
         .single_threaded = true,
         .strip = false,
         .omit_frame_pointer = false,
+    });
+
+    const libc_shim_newlib_module = b.createModule(.{
+        .root_source_file = b.path("userspace/libc_shim/newlib.zig"),
+        .target = kernel_target,
+        .optimize = optimize,
+        .code_model = .small,
+        .red_zone = false,
+        .pic = false,
+        .stack_protector = false,
+        .stack_check = false,
+        .single_threaded = true,
+        .strip = false,
+        .omit_frame_pointer = false,
+        .imports = &.{
+            .{ .name = "zigix_sys", .module = userspace_sys_module },
+        },
     });
 
     const init_module = b.createModule(.{
@@ -259,6 +276,7 @@ pub fn build(b: *std.Build) void {
         .omit_frame_pointer = false,
         .imports = &.{
             .{ .name = "zigix_sys", .module = userspace_sys_module },
+            .{ .name = "zigix_newlib", .module = libc_shim_newlib_module },
         },
     });
 
@@ -442,14 +460,14 @@ pub fn build(b: *std.Build) void {
         "tools/qemu/smoke_test.py",
         "zig-out/serial.log",
         "--phase",
-        "phase11",
+        "phase14",
     });
     smoke.setName("qemu-smoke-parse");
     smoke.step.dependOn(&qemu_run.step);
 
     const qemu_step = b.step(
         "qemu-smoke",
-        "Boot the kernel in QEMU and verify Phase 11 markers on COM1",
+        "Boot the kernel in QEMU and verify Phase 14 markers on COM1",
     );
     qemu_step.dependOn(&smoke.step);
 
@@ -524,4 +542,25 @@ pub fn build(b: *std.Build) void {
     );
     host_step.dependOn(&run_host_path_tests.step);
     host_step.dependOn(&run_host_elf_tests.step);
+
+    const host_libc_shim_module = b.createModule(.{
+        .root_source_file = b.path("tests/host/libc_shim.zig"),
+        .target = b.graph.host,
+        .optimize = optimize,
+        .imports = &.{
+            .{
+                .name = "libc_shim_abi",
+                .module = b.createModule(.{
+                    .root_source_file = b.path("userspace/libc_shim/abi.zig"),
+                    .target = b.graph.host,
+                    .optimize = optimize,
+                }),
+            },
+        },
+    });
+    const host_libc_shim_tests = b.addTest(.{
+        .root_module = host_libc_shim_module,
+    });
+    const run_host_libc_shim_tests = b.addRunArtifact(host_libc_shim_tests);
+    host_step.dependOn(&run_host_libc_shim_tests.step);
 }

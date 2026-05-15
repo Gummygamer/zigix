@@ -83,6 +83,21 @@ PHASES: dict[str, list[str]] = {
         "[ZIGIX:INIT:START]",
         "[ZIGIX:INIT:OK]",
     ],
+    "phase13": [
+        "[ZIGIX:BOOT:OK]",
+        "[ZIGIX:TEST:PASS:tinysh_smoke]",
+        "[ZIGIX:TEST:PASS:libc_shim_newlib]",
+        "[ZIGIX:INIT:START]",
+        "[ZIGIX:INIT:OK]",
+    ],
+    "phase14": [
+        "[ZIGIX:BOOT:OK]",
+        "[ZIGIX:TEST:PASS:syscall_dup2]",
+        "[ZIGIX:TEST:PASS:tinysh_smoke]",
+        "[ZIGIX:TEST:PASS:libc_shim_newlib]",
+        "[ZIGIX:INIT:START]",
+        "[ZIGIX:INIT:OK]",
+    ],
 }
 
 

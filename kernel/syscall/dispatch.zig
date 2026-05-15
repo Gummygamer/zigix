@@ -231,6 +231,18 @@ pub const Process = struct {
         };
     }
 
+    fn dupTo(self: *Process, old_fd: usize, new_fd: usize) bool {
+        const descriptor = self.get(old_fd) orelse return false;
+        if (old_fd == new_fd) return true;
+
+        var new_descriptor = descriptor;
+        new_descriptor.close_on_exec = false;
+        retainTarget(new_descriptor.target);
+        if (self.get(new_fd) != null) _ = self.close(new_fd);
+        self.fd_table[new_fd] = new_descriptor;
+        return true;
+    }
+
     fn close(self: *Process, fd: usize) bool {
         const descriptor = self.get(fd) orelse return false;
         releaseTarget(descriptor.target);
@@ -298,6 +310,7 @@ pub fn invoke(num: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64, a
         numbers.lseek => sysLseek(arg0, arg1, arg2),
         numbers.pipe => sysPipe(arg0),
         numbers.dup => sysDup(arg0),
+        numbers.dup2 => sysDup2(arg0, arg1),
         numbers.execve => sysExecve(arg0, arg1, arg2),
         numbers.exit => sysExit(arg0),
         numbers.wait4 => sysWait4(arg0, arg1, arg2, arg3),
@@ -500,6 +513,14 @@ fn sysDup(fd_arg: u64) i64 {
         if (process.get(fd) == null) return errno.fail(errno.BADF);
         return errno.fail(errno.NFILE);
     };
+    return @intCast(new_fd);
+}
+
+fn sysDup2(old_fd_arg: u64, new_fd_arg: u64) i64 {
+    const process = currentProcess() orelse return errno.fail(errno.SRCH);
+    const old_fd = fdIndex(old_fd_arg) orelse return errno.fail(errno.BADF);
+    const new_fd = fdIndex(new_fd_arg) orelse return errno.fail(errno.BADF);
+    if (!process.dupTo(old_fd, new_fd)) return errno.fail(errno.BADF);
     return @intCast(new_fd);
 }
 

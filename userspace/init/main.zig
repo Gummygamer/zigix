@@ -1,5 +1,6 @@
 //! First Zigix userspace process.
 
+const libc = @import("zigix_newlib");
 const sys = @import("zigix_sys");
 
 export fn _start() callconv(.c) noreturn {
@@ -16,6 +17,12 @@ export fn _start() callconv(.c) noreturn {
     var status: i32 = -1;
     if (sys.waitpid(pid, &status, 0) != pid or status != 0) {
         _ = sys.write(sys.STDOUT, "[ZIGIX:TEST:FAIL:posix_spawn_user:wait]\n");
+        sys._exit(1);
+    }
+
+    const libc_marker = "[ZIGIX:TEST:PASS:libc_shim_newlib]\n";
+    if (libc._write(1, libc_marker.ptr, libc_marker.len) != libc_marker.len) {
+        _ = sys.write(sys.STDOUT, "[ZIGIX:TEST:FAIL:libc_shim_newlib:write]\n");
         sys._exit(1);
     }
 

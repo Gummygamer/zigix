@@ -26,7 +26,10 @@ rejected.
 | 10    | `exec` and process lifecycle         | done         | `[ZIGIX:TEST:PASS:syscall_pipe_blocking]`, `[ZIGIX:TEST:PASS:process_lifecycle]`, `[ZIGIX:TEST:PASS:process_wait_nohang]`, `[ZIGIX:TEST:PASS:process_wait_blocking]`, `[ZIGIX:TEST:PASS:process_address_space]`, `[ZIGIX:TEST:PASS:process_page_tables]`, `[ZIGIX:TEST:PASS:process_scheduler_groundwork]`, `[ZIGIX:TEST:PASS:process_run_queue]`, `[ZIGIX:TEST:PASS:process_fd_tables]`, `[ZIGIX:TEST:PASS:process_spawn_resume]`, `[ZIGIX:TEST:PASS:spawn_child_image]`, `[ZIGIX:TEST:PASS:posix_spawn_handoff]`, `[ZIGIX:TEST:PASS:execve_load]`, `[ZIGIX:TEST:PASS:execve_argv_stack]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 11    | Tiny shell                           | done         | `[ZIGIX:TEST:PASS:tinysh_smoke]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 12    | Interactive console shell            | done         | `[ZIGIX:TEST:PASS:tinysh_interactive]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
-| 13–16 | Userspace expansion                  | pending      | per-phase markers TBD |
+| 13    | libc strategy                        | done         | `[ZIGIX:TEST:PASS:libc_shim_newlib]` |
+| 14    | POSIX expansion                      | in progress  | `[ZIGIX:TEST:PASS:syscall_dup2]` |
+| 15    | BusyBox or Toybox port               | pending      | per-phase markers TBD |
+| 16    | GNU tools later                      | pending      | per-phase markers TBD |
 
 ## Phase 0 — Toolchain and smoke-test skeleton ✅
 
@@ -425,13 +428,36 @@ Non-goals for the first interactive shell:
 
 ## Phase 13 — libc strategy
 
-- Decide newlib first (smaller surface) vs musl (closer to Linux ABI).
-  Adapt in `userspace/libc_shim/` until then.
+- [x] Decide newlib first. The smaller syscall hook surface matches the
+      current Zigix syscall set better than musl's broader Linux/POSIX
+      expectations.
+- [x] Add `userspace/libc_shim/` with a shared ABI policy module and a
+      minimal newlib-style syscall hook layer for `_read`, `_write`, `_open`,
+      `_close`, `_lseek`, `_fstat`, `_stat`, `_isatty`, `_getpid`, `_kill`,
+      `_sbrk`, and `_exit`.
+- [x] Extend `userspace/lib/sys.zig` with the raw syscall wrappers the shim
+      needs.
+- [x] Add host tests for the libc shim ABI policy and errno mapping.
+- [x] Exercise the shim from `/init` and require
+      `[ZIGIX:TEST:PASS:libc_shim_newlib]` in the Phase 13 smoke parser.
+
+Intentional limits:
+
+- `_sbrk` returns `ENOMEM` until a userspace heap contract exists.
+- `_getpid` is a fixed bootstrap value until a `getpid` syscall is added.
+- `_kill` returns `ENOSYS` until Phase 14 signal work starts.
+- The shim targets source compatibility for a future newlib build; it is not
+  a hosted C runtime yet.
 
 ## Phase 14 — POSIX expansion
 
-- `dup2`, `chdir`, signals (subset: `SIGINT`, `SIGTERM`, `SIGCHLD`),
-  more file ops (`unlink`, `rename`, `mkdir`).
+- [x] `dup2`: duplicate an open descriptor onto a requested descriptor,
+      close the replaced target, preserve same-fd no-op semantics, and clear
+      close-on-exec on new duplicates. Marker:
+      `[ZIGIX:TEST:PASS:syscall_dup2]`.
+- [ ] `chdir`
+- [ ] signals (subset: `SIGINT`, `SIGTERM`, `SIGCHLD`)
+- [ ] more file ops (`unlink`, `rename`, `mkdir`)
 
 ## Phase 15 — BusyBox or Toybox port
 
@@ -459,13 +485,13 @@ Non-goals for the first interactive shell:
 
 The next thing to do, concretely:
 
-1. Source `.env`, then run `ci/local.sh` to confirm the Phase 11 smoke
+1. Source `.env`, then run `ci/local.sh` to confirm the Phase 14 smoke
    and the Phase 12 scripted interactive smoke still pass from the current
    checkout.
-2. Start Phase 13 by choosing the first libc target: newlib for a smaller
-   porting surface or musl for closer Linux/POSIX behavior.
+2. Continue Phase 14 POSIX expansion with `chdir` or the next syscall that
+   unblocks a concrete shell or porting behavior.
 3. Keep transparent blocking syscall resume on the deferred list unless the
-   libc port exposes a concrete need for it.
+   newlib port or Phase 14 work exposes a concrete need for it.
 
 Operational reminders for a fresh session:
 

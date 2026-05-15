@@ -58,6 +58,7 @@ The syscall layer uses Linux errno numbers for the exposed set:
 | 8 | `lseek` | `off_t lseek(int fd, off_t offset, int whence)` |
 | 22 | `pipe` | `int pipe(int pipefd[2])` |
 | 32 | `dup` | `int dup(int oldfd)` |
+| 33 | `dup2` | `int dup2(int oldfd, int newfd)` |
 | 59 | `execve` | `int execve(const char *path, char *const argv[], char *const envp[])` |
 | 60 | `exit` | `void exit(int status)` |
 | 61 | `wait4` | `pid_t wait4(pid_t pid, int *wstatus, int options, void *rusage)` |
@@ -66,9 +67,9 @@ The syscall layer uses Linux errno numbers for the exposed set:
 
 ### `read`
 
-Reads from a VFS-backed descriptor opened by `open`, or from a pipe read end.
-`fd == 0` returns EOF for now; `fd == 1`, `fd == 2`, and pipe write ends fail
-with `EBADF`.
+Reads from serial-backed stdin (`fd == 0`), a VFS-backed descriptor opened by
+`open`, or a pipe read end. Empty serial reads return `EAGAIN`; `fd == 1`,
+`fd == 2`, and pipe write ends fail with `EBADF`.
 
 Errors: `EBADF`, `EFAULT`, VFS-mapped errors.
 
@@ -128,6 +129,16 @@ buffer. The duplicate's close-on-exec flag is cleared, matching Unix `dup`
 semantics.
 
 Errors: `EBADF`, `ENFILE`.
+
+### `dup2`
+
+Duplicates an existing descriptor onto a requested descriptor slot. If `newfd`
+is already open, Zigix closes it before installing the duplicate. If `oldfd`
+equals `newfd`, the call validates the descriptor and returns without changing
+close-on-exec state. New duplicates share VFS open-file offsets or pipe
+endpoint state with `oldfd`, and their close-on-exec flag is cleared.
+
+Errors: `EBADF`.
 
 ### `execve`
 
