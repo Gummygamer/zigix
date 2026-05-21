@@ -28,10 +28,12 @@ non-interactive shell smoke path, and runs an interactive scripted
 `/tinysh` session for Phase 12. Phase 13 chooses newlib as the first libc
 target and adds a minimal `userspace/libc_shim/` syscall hook layer. The
 first Phase 14 shell/POSIX usability slices add `dup2`, `chdir`, and process
-identity syscalls and directory reads with the markers `[ZIGIX:TEST:PASS:syscall_dup2]`,
+identity syscalls, directory reads, writable memfs, and shell redirection with the markers `[ZIGIX:TEST:PASS:syscall_dup2]`,
 `[ZIGIX:TEST:PASS:syscall_chdir]`, and
 `[ZIGIX:TEST:PASS:syscall_getpid]`,
-`[ZIGIX:TEST:PASS:syscall_getdents64]`. Relative `open`, `stat`, `execve`, and
+`[ZIGIX:TEST:PASS:syscall_getdents64]`,
+`[ZIGIX:TEST:PASS:syscall_writable_memfs]`, and
+`[ZIGIX:TEST:PASS:tinysh_redirection]`. Relative `open`, `stat`, `execve`, and
 `posix_spawn` paths now resolve against per-process cwd, and `tinysh` has a
 `cd` builtin. The Phase 13 marker remains
 `[ZIGIX:TEST:PASS:libc_shim_newlib]`, emitted by `/init` through the newlib

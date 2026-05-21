@@ -474,7 +474,7 @@ surface needed by a visible shell/libc behavior.
       shell directory listing can exist.
 - [x] Minimal writable memfs operations: `mkdir`, `unlink`, `rename`, and
       write/truncate on memfs files, with inode-backed file descriptor tests.
-- [ ] Shell redirection: `cmd > file`, `cmd < file`, and descriptor setup for
+- [x] Shell redirection: `cmd > file`, `cmd < file`, and descriptor setup for
       spawned children. This should depend on writable memfs and `dup2`.
 - [ ] Signals only after there is a caller: start with process-directed
       `SIGTERM`/`SIGCHLD` semantics before terminal `SIGINT`.
