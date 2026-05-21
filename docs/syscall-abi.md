@@ -65,6 +65,7 @@ The syscall layer uses Linux errno numbers for the exposed set:
 | 61 | `wait4` | `pid_t wait4(pid_t pid, int *wstatus, int options, void *rusage)` |
 | 80 | `chdir` | `int chdir(const char *path)` |
 | 110 | `getppid` | `pid_t getppid(void)` |
+| 217 | `getdents64` | `int getdents64(int fd, void *dirp, unsigned int count)` |
 | 231 | `exit_group` | `void exit_group(int status)` |
 | 4000 | `posix_spawn` | `int posix_spawn(const char *path, char *const argv[], char *const envp[])` |
 
@@ -150,6 +151,16 @@ Returns the caller's process ID or its parent's process ID. The bootstrap
 process has no parent, so `getppid` returns `0` for PID 1.
 
 Errors: none.
+
+### `getdents64`
+
+Reads directory entries from a directory descriptor opened with `open`. Records
+use the Linux `linux_dirent64` byte layout: `d_ino`, `d_off`, `d_reclen`,
+`d_type`, then a NUL-terminated name. Zigix currently reports `DT_REG` and
+`DT_DIR`; inode numbers are stable hashes of entry names until the VFS grows
+real inode IDs.
+
+Errors: `EBADF`, `EFAULT`, `EINVAL`, `ENOTDIR`, VFS-mapped errors.
 
 ### `execve`
 

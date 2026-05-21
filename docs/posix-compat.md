@@ -13,6 +13,7 @@ Update this file whenever syscall or POSIX semantics change.
 | `close`  | partial | per-process fd tables; spawned children inherit descriptors lazily | `syscall_vfs`, `syscall_fd_table`, `syscall_pipe`, `process_fd_tables` |
 | `lseek`  | partial | VFS files only                             | `syscall_vfs`, `syscall_fd_table` |
 | `stat`   | partial | compact Zigix stat layout                  | `syscall_vfs` |
+| `getdents64` | partial | Linux-style directory records from directory descriptors; inode numbers are synthetic | `syscall_getdents64` |
 | `pipe`   | partial | bounded buffer; first park/wake path for empty reads and full writes; cooperative run queues wake blocked endpoints | `syscall_pipe`, `syscall_pipe_blocking` |
 | `dup`    | partial | lowest free fd; clears close-on-exec       | `syscall_fd_table`, `syscall_pipe` |
 | `dup2`   | partial | requested fd; replaces an open target; same-fd no-op; clears close-on-exec on new duplicates | `syscall_dup2` |

@@ -470,7 +470,7 @@ surface needed by a visible shell/libc behavior.
       relative `exec-ok`. Marker: `[ZIGIX:TEST:PASS:syscall_chdir]`.
 - [x] `getpid`/`getppid`: replace libc shim placeholders and let shell/tests
       observe real process identity.
-- [ ] `readdir`/`getdents64`: needed before `ls`-style utilities or a useful
+- [x] `readdir`/`getdents64`: needed before `ls`-style utilities or a useful
       shell directory listing can exist.
 - [ ] Minimal writable memfs operations: `mkdir`, `unlink`, `rename`, and
       write/truncate on memfs files, with inode-backed file descriptor tests.

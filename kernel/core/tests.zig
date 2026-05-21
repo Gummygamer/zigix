@@ -65,6 +65,11 @@ pub const TEST_syscall_getpid = testing.Test{
     .run = syscallGetpid,
 };
 
+pub const TEST_syscall_getdents64 = testing.Test{
+    .name = "syscall_getdents64",
+    .run = syscallGetdents64,
+};
+
 pub const TEST_syscall_pipe = testing.Test{
     .name = "syscall_pipe",
     .run = syscallPipe,
@@ -419,6 +424,70 @@ fn syscallGetpid() testing.TestError!void {
         return error.SyscallGetpidChildReapFailed;
     }
     child_reaped = true;
+}
+
+fn syscallGetdents64() testing.TestError!void {
+    const root = "/\x00";
+    const init = "/init\x00";
+
+    const root_fd = syscall.dispatch.invoke(syscall.numbers.open, @intFromPtr(root.ptr), 0, 0, 0, 0, 0);
+    if (root_fd < 3) return error.SyscallGetdentsOpenRootFailed;
+
+    var buf: [256]u8 = undefined;
+    const bytes = syscall.dispatch.invoke(syscall.numbers.getdents64, @intCast(root_fd), @intFromPtr(&buf), buf.len, 0, 0, 0);
+    if (bytes <= 0) return error.SyscallGetdentsReadFailed;
+
+    var seen_init = false;
+    var seen_exec_ok = false;
+    var seen_tinysh = false;
+    var offset: usize = 0;
+    while (offset < @as(usize, @intCast(bytes))) {
+        if (offset + 19 > @as(usize, @intCast(bytes))) return error.SyscallGetdentsShortRecord;
+        const reclen = readLeU16(buf[offset + 16 .. offset + 18]);
+        if (reclen < 20 or offset + reclen > @as(usize, @intCast(bytes))) return error.SyscallGetdentsBadRecordLen;
+        if (readLeI64(buf[offset + 8 .. offset + 16]) <= 0) return error.SyscallGetdentsBadOffset;
+
+        const entry_type = buf[offset + 18];
+        const name = direntName(buf[offset + 19 .. offset + reclen]) orelse return error.SyscallGetdentsMissingNull;
+        if (std.mem.eql(u8, name, "init")) {
+            seen_init = true;
+            if (entry_type != 8) return error.SyscallGetdentsWrongType;
+        } else if (std.mem.eql(u8, name, "exec-ok")) {
+            seen_exec_ok = true;
+            if (entry_type != 8) return error.SyscallGetdentsWrongType;
+        } else if (std.mem.eql(u8, name, "tinysh")) {
+            seen_tinysh = true;
+            if (entry_type != 8) return error.SyscallGetdentsWrongType;
+        }
+        offset += reclen;
+    }
+    if (!seen_init or !seen_exec_ok or !seen_tinysh) return error.SyscallGetdentsMissingInitramfsEntry;
+
+    if (syscall.dispatch.invoke(syscall.numbers.getdents64, @intCast(root_fd), @intFromPtr(&buf), buf.len, 0, 0, 0) != 0) {
+        return error.SyscallGetdentsEofFailed;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(root_fd), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallCloseFailed;
+    }
+
+    const small_fd = syscall.dispatch.invoke(syscall.numbers.open, @intFromPtr(root.ptr), 0, 0, 0, 0, 0);
+    if (small_fd < 3) return error.SyscallGetdentsOpenRootFailed;
+    var small: [8]u8 = undefined;
+    if (syscall.dispatch.invoke(syscall.numbers.getdents64, @intCast(small_fd), @intFromPtr(&small), small.len, 0, 0, 0) != -syscall.errno.INVAL) {
+        return error.SyscallGetdentsSmallBufferAccepted;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(small_fd), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallCloseFailed;
+    }
+
+    const file_fd = syscall.dispatch.invoke(syscall.numbers.open, @intFromPtr(init.ptr), 0, 0, 0, 0, 0);
+    if (file_fd < 3) return error.SyscallOpenFailed;
+    if (syscall.dispatch.invoke(syscall.numbers.getdents64, @intCast(file_fd), @intFromPtr(&buf), buf.len, 0, 0, 0) != -syscall.errno.NOTDIR) {
+        return error.SyscallGetdentsFileAccepted;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(file_fd), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallCloseFailed;
+    }
 }
 
 fn syscallPipe() testing.TestError!void {
@@ -1077,6 +1146,26 @@ fn execveArgvStack() testing.TestError!void {
 
 fn elfStaticLoader() testing.TestError!void {
     if (!elf.selfTestStaticLoaderMarker()) return error.ElfStaticLoaderFailed;
+}
+
+fn direntName(bytes: []const u8) ?[]const u8 {
+    for (bytes, 0..) |byte, index| {
+        if (byte == 0) return bytes[0..index];
+    }
+    return null;
+}
+
+fn readLeU16(bytes: []const u8) u16 {
+    return @as(u16, bytes[0]) | (@as(u16, bytes[1]) << 8);
+}
+
+fn readLeI64(bytes: []const u8) i64 {
+    var value: u64 = 0;
+    var index: usize = 0;
+    while (index < 8) : (index += 1) {
+        value |= @as(u64, bytes[index]) << @intCast(index * 8);
+    }
+    return @bitCast(value);
 }
 
 fn readStackWord(stack: []const u8, offset: usize) usize {

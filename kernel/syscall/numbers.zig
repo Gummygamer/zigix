@@ -19,5 +19,6 @@ pub const exit: u64 = 60;
 pub const wait4: u64 = 61;
 pub const chdir: u64 = 80;
 pub const getppid: u64 = 110;
+pub const getdents64: u64 = 217;
 pub const exit_group: u64 = 231;
 pub const posix_spawn: u64 = 4000;

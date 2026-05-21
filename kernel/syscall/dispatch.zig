@@ -15,6 +15,7 @@ const cpu = arch.cpu;
 
 const MAX_FDS: usize = 16;
 const MAX_OPEN_FILES: usize = 16;
+const MAX_OPEN_DIRS: usize = 16;
 const MAX_PIPES: usize = 8;
 const MAX_PATH_BYTES: usize = 256;
 const MAX_EXEC_ARGS: usize = 8;
@@ -24,6 +25,9 @@ pub const PIPE_BUFFER_SIZE: usize = 4096;
 const MAX_PIPE_WAITERS: usize = proc.MAX_PROCESSES;
 
 pub const O_CLOEXEC: u64 = 0o2000000;
+const DIRENT64_HEADER_SIZE: usize = 19;
+const DT_DIR: u8 = 4;
+const DT_REG: u8 = 8;
 
 const SEEK_SET: u64 = 0;
 const SEEK_CUR: u64 = 1;
@@ -45,6 +49,12 @@ pub const Stat = extern struct {
 const OpenFile = struct {
     used: bool = false,
     file: fs.vfs.File = undefined,
+    ref_count: usize = 0,
+};
+
+const OpenDir = struct {
+    used: bool = false,
+    dir: fs.vfs.Dir = undefined,
     ref_count: usize = 0,
 };
 
@@ -137,6 +147,7 @@ const FdTarget = union(enum) {
     stdout,
     stderr,
     file: *OpenFile,
+    dir: *OpenDir,
     pipe_read: *Pipe,
     pipe_write: *Pipe,
 };
@@ -307,12 +318,14 @@ const ProcessFdTable = struct {
 };
 
 var open_files: [MAX_OPEN_FILES]OpenFile = [_]OpenFile{.{}} ** MAX_OPEN_FILES;
+var open_dirs: [MAX_OPEN_DIRS]OpenDir = [_]OpenDir{.{}} ** MAX_OPEN_DIRS;
 var pipes: [MAX_PIPES]Pipe = [_]Pipe{.{}} ** MAX_PIPES;
 var process_tables: [proc.MAX_PROCESSES]ProcessFdTable = [_]ProcessFdTable{.{}} ** proc.MAX_PROCESSES;
 var exec_args_scratch: ExecArgs = .{};
 
 pub fn init() void {
     for (&open_files) |*slot| slot.* = .{};
+    for (&open_dirs) |*slot| slot.* = .{};
     for (&pipes) |*slot| slot.* = .{};
     proc.init();
     for (&process_tables) |*slot| slot.* = .{};
@@ -341,6 +354,7 @@ pub fn invoke(num: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64, a
         numbers.wait4 => sysWait4(arg0, arg1, arg2, arg3),
         numbers.chdir => sysChdir(arg0),
         numbers.getppid => sysGetppid(),
+        numbers.getdents64 => sysGetdents64(arg0, arg1, arg2),
         numbers.exit_group => sysExit(arg0),
         numbers.posix_spawn => sysPosixSpawn(arg0, arg1, arg2),
         else => errno.fail(errno.NOSYS),
@@ -401,6 +415,7 @@ fn sysRead(fd_arg: u64, buf_ptr: u64, len: u64) i64 {
         },
         .stdout, .stderr => return errno.fail(errno.BADF),
         .file => |open_file| open_file.file.read(dest) catch |err| return mapFsError(err),
+        .dir => return errno.fail(errno.ISDIR),
         .pipe_read => |pipe| {
             if (pipe.empty()) {
                 if (pipe.write_refs == 0) return 0;
@@ -438,7 +453,7 @@ fn sysWrite(fd_arg: u64, buf_ptr: u64, len: u64) i64 {
             if (amount > 0) pipe.wakeReaders();
             return @intCast(amount);
         },
-        .stdin, .file, .pipe_read => return errno.fail(errno.BADF),
+        .stdin, .file, .dir, .pipe_read => return errno.fail(errno.BADF),
     }
 }
 
@@ -449,13 +464,29 @@ fn sysOpen(path_ptr: u64, flags: u64, mode: u64) i64 {
 
     const raw_path = userCString(path_ptr) orelse return errno.fail(errno.FAULT);
     const path = process.resolvePath(raw_path) catch |err| return mapPathError(err);
-    const file = fs.vfs.open(path) catch |err| return mapFsError(err);
-    const open_file = allocOpenFile(file) orelse return errno.fail(errno.NFILE);
-    const slot = process.install(.{
-        .target = .{ .file = open_file },
-        .close_on_exec = (flags & O_CLOEXEC) != 0,
-    }) orelse {
-        releaseOpenFile(open_file);
+    const inode = fs.vfs.lookup(path) catch |err| return mapFsError(err);
+
+    const descriptor: Descriptor = switch (inode.kind) {
+        .file => blk: {
+            const file = fs.vfs.open(path) catch |err| return mapFsError(err);
+            const open_file = allocOpenFile(file) orelse return errno.fail(errno.NFILE);
+            break :blk .{
+                .target = .{ .file = open_file },
+                .close_on_exec = (flags & O_CLOEXEC) != 0,
+            };
+        },
+        .dir => blk: {
+            const dir = fs.vfs.opendir(path) catch |err| return mapFsError(err);
+            const open_dir = allocOpenDir(dir) orelse return errno.fail(errno.NFILE);
+            break :blk .{
+                .target = .{ .dir = open_dir },
+                .close_on_exec = (flags & O_CLOEXEC) != 0,
+            };
+        },
+    };
+
+    const slot = process.install(descriptor) orelse {
+        releaseTarget(descriptor.target);
         return errno.fail(errno.NFILE);
     };
     return @intCast(slot);
@@ -474,7 +505,7 @@ fn sysLseek(fd_arg: u64, offset_arg: u64, whence: u64) i64 {
     const descriptor = process.get(fd) orelse return errno.fail(errno.BADF);
     const open_file = switch (descriptor.target) {
         .file => |open_file| open_file,
-        .stdin, .stdout, .stderr, .pipe_read, .pipe_write => return errno.fail(errno.BADF),
+        .stdin, .stdout, .stderr, .dir, .pipe_read, .pipe_write => return errno.fail(errno.BADF),
     };
 
     const offset: i64 = @bitCast(offset_arg);
@@ -511,6 +542,7 @@ fn sysFstat(fd_arg: u64, stat_ptr: u64) i64 {
         .stdin, .stdout, .stderr => .{ .mode = 0o020000 },
         .pipe_read, .pipe_write => .{ .mode = 0o010000 },
         .file => |open_file| statFor(open_file.file.inode),
+        .dir => |open_dir| statFor(open_dir.dir.inode),
     };
     return 0;
 }
@@ -560,6 +592,33 @@ fn sysGetpid() i64 {
 
 fn sysGetppid() i64 {
     return @intCast(proc.parentPid(proc.currentPid()) orelse 0);
+}
+
+fn sysGetdents64(fd_arg: u64, dirent_ptr: u64, count: u64) i64 {
+    const process = currentProcess() orelse return errno.fail(errno.SRCH);
+    const fd = fdIndex(fd_arg) orelse return errno.fail(errno.BADF);
+    const dest = userBytesMut(dirent_ptr, count) orelse return errno.fail(errno.FAULT);
+    if (dest.len == 0) return 0;
+
+    const descriptor = process.get(fd) orelse return errno.fail(errno.BADF);
+    const open_dir = switch (descriptor.target) {
+        .dir => |open_dir| open_dir,
+        .file => return errno.fail(errno.NOTDIR),
+        .stdin, .stdout, .stderr, .pipe_read, .pipe_write => return errno.fail(errno.BADF),
+    };
+
+    var written: usize = 0;
+    while (true) {
+        const entry = (open_dir.dir.next() catch |err| return mapFsError(err)) orelse return @intCast(written);
+        const record_len = dirent64RecordLen(entry.name.len);
+        if (record_len > dest.len - written) {
+            open_dir.dir.cookie -= 1;
+            if (written == 0) return errno.fail(errno.INVAL);
+            return @intCast(written);
+        }
+        writeDirent64(dest[written .. written + record_len], entry, open_dir.dir.cookie);
+        written += record_len;
+    }
 }
 
 fn sysExecve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) i64 {
@@ -746,6 +805,20 @@ fn allocOpenFile(file: fs.vfs.File) ?*OpenFile {
     return null;
 }
 
+fn allocOpenDir(dir: fs.vfs.Dir) ?*OpenDir {
+    for (&open_dirs) |*open_dir| {
+        if (!open_dir.used) {
+            open_dir.* = .{
+                .used = true,
+                .dir = dir,
+                .ref_count = 1,
+            };
+            return open_dir;
+        }
+    }
+    return null;
+}
+
 fn allocPipe() ?*Pipe {
     for (&pipes) |*pipe| {
         if (!pipe.used) {
@@ -763,6 +836,7 @@ fn allocPipe() ?*Pipe {
 fn retainTarget(target: FdTarget) void {
     switch (target) {
         .file => |open_file| open_file.ref_count += 1,
+        .dir => |open_dir| open_dir.ref_count += 1,
         .pipe_read => |pipe| pipe.read_refs += 1,
         .pipe_write => |pipe| pipe.write_refs += 1,
         .stdin, .stdout, .stderr => {},
@@ -772,6 +846,7 @@ fn retainTarget(target: FdTarget) void {
 fn releaseTarget(target: FdTarget) void {
     switch (target) {
         .file => |open_file| releaseOpenFile(open_file),
+        .dir => |open_dir| releaseOpenDir(open_dir),
         .pipe_read => |pipe| releasePipeRead(pipe),
         .pipe_write => |pipe| releasePipeWrite(pipe),
         .stdin, .stdout, .stderr => {},
@@ -784,6 +859,14 @@ fn releaseOpenFile(open_file: *OpenFile) void {
         return;
     }
     open_file.* = .{};
+}
+
+fn releaseOpenDir(open_dir: *OpenDir) void {
+    if (open_dir.ref_count > 1) {
+        open_dir.ref_count -= 1;
+        return;
+    }
+    open_dir.* = .{};
 }
 
 fn releasePipeRead(pipe: *Pipe) void {
@@ -945,6 +1028,53 @@ fn userFdPair(ptr: u64) ?*[2]i32 {
 fn userInt(ptr: u64) ?*i32 {
     if (ptr == 0) return null;
     return @ptrFromInt(ptr);
+}
+
+fn writeDirent64(dest: []u8, entry: fs.vfs.DirEntry, next_cookie: usize) void {
+    @memset(dest, 0);
+    writeU64(dest[0..8], direntIno(entry.name));
+    writeI64(dest[8..16], @intCast(next_cookie));
+    writeU16(dest[16..18], @intCast(dest.len));
+    dest[18] = switch (entry.kind) {
+        .dir => DT_DIR,
+        .file => DT_REG,
+    };
+    @memcpy(dest[DIRENT64_HEADER_SIZE .. DIRENT64_HEADER_SIZE + entry.name.len], entry.name);
+}
+
+fn dirent64RecordLen(name_len: usize) usize {
+    return alignForward(DIRENT64_HEADER_SIZE + name_len + 1, 8);
+}
+
+fn alignForward(value: usize, alignment: usize) usize {
+    return (value + alignment - 1) & ~(alignment - 1);
+}
+
+fn direntIno(name: []const u8) u64 {
+    var hash: u64 = 14695981039346656037;
+    for (name) |byte| {
+        hash ^= byte;
+        hash *%= 1099511628211;
+    }
+    return if (hash == 0) 1 else hash;
+}
+
+fn writeU64(dest: []u8, value: u64) void {
+    var remaining = value;
+    var index: usize = 0;
+    while (index < 8) : (index += 1) {
+        dest[index] = @truncate(remaining);
+        remaining >>= 8;
+    }
+}
+
+fn writeI64(dest: []u8, value: i64) void {
+    writeU64(dest, @bitCast(value));
+}
+
+fn writeU16(dest: []u8, value: u16) void {
+    dest[0] = @truncate(value);
+    dest[1] = @truncate(value >> 8);
 }
 
 fn mapPathError(err: fs.path.Error) i64 {

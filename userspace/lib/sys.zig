@@ -20,6 +20,7 @@ pub const SYS_exit: u64 = 60;
 pub const SYS_wait4: u64 = 61;
 pub const SYS_chdir: u64 = 80;
 pub const SYS_getppid: u64 = 110;
+pub const SYS_getdents64: u64 = 217;
 pub const SYS_exit_group: u64 = 231;
 pub const SYS_posix_spawn: u64 = 4000;
 
@@ -103,6 +104,10 @@ pub fn getpid() i64 {
 
 pub fn getppid() i64 {
     return syscall0(SYS_getppid);
+}
+
+pub fn getdents64(fd: u64, buf: []u8) i64 {
+    return syscall3(SYS_getdents64, fd, @intFromPtr(buf.ptr), buf.len);
 }
 
 pub fn execve(path: [*:0]const u8, argv: usize, envp: usize) i64 {
