@@ -24,7 +24,12 @@ const MAX_EXEC_STRING_BYTES: usize = 256;
 pub const PIPE_BUFFER_SIZE: usize = 4096;
 const MAX_PIPE_WAITERS: usize = proc.MAX_PROCESSES;
 
+pub const O_WRONLY: u64 = 0o1;
+pub const O_RDWR: u64 = 0o2;
+pub const O_CREAT: u64 = 0o100;
+pub const O_TRUNC: u64 = 0o1000;
 pub const O_CLOEXEC: u64 = 0o2000000;
+const O_ACCMODE: u64 = 0o3;
 const DIRENT64_HEADER_SIZE: usize = 19;
 const DT_DIR: u8 = 4;
 const DT_REG: u8 = 8;
@@ -49,6 +54,8 @@ pub const Stat = extern struct {
 const OpenFile = struct {
     used: bool = false,
     file: fs.vfs.File = undefined,
+    readable: bool = false,
+    writable: bool = false,
     ref_count: usize = 0,
 };
 
@@ -352,7 +359,12 @@ pub fn invoke(num: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64, a
         numbers.execve => sysExecve(arg0, arg1, arg2),
         numbers.exit => sysExit(arg0),
         numbers.wait4 => sysWait4(arg0, arg1, arg2, arg3),
+        numbers.truncate => sysTruncate(arg0, arg1),
+        numbers.ftruncate => sysFtruncate(arg0, arg1),
         numbers.chdir => sysChdir(arg0),
+        numbers.rename => sysRename(arg0, arg1),
+        numbers.mkdir => sysMkdir(arg0),
+        numbers.unlink => sysUnlink(arg0),
         numbers.getppid => sysGetppid(),
         numbers.getdents64 => sysGetdents64(arg0, arg1, arg2),
         numbers.exit_group => sysExit(arg0),
@@ -414,7 +426,10 @@ fn sysRead(fd_arg: u64, buf_ptr: u64, len: u64) i64 {
             return @intCast(amount);
         },
         .stdout, .stderr => return errno.fail(errno.BADF),
-        .file => |open_file| open_file.file.read(dest) catch |err| return mapFsError(err),
+        .file => |open_file| {
+            if (!open_file.readable) return errno.fail(errno.BADF);
+            return @intCast(open_file.file.read(dest) catch |err| return mapFsError(err));
+        },
         .dir => return errno.fail(errno.ISDIR),
         .pipe_read => |pipe| {
             if (pipe.empty()) {
@@ -453,23 +468,49 @@ fn sysWrite(fd_arg: u64, buf_ptr: u64, len: u64) i64 {
             if (amount > 0) pipe.wakeReaders();
             return @intCast(amount);
         },
-        .stdin, .file, .dir, .pipe_read => return errno.fail(errno.BADF),
+        .file => |open_file| {
+            if (!open_file.writable) return errno.fail(errno.BADF);
+            return @intCast(open_file.file.write(bytes) catch |err| return mapFsError(err));
+        },
+        .stdin, .dir, .pipe_read => return errno.fail(errno.BADF),
     }
 }
 
 fn sysOpen(path_ptr: u64, flags: u64, mode: u64) i64 {
     _ = mode;
     const process = currentProcess() orelse return errno.fail(errno.SRCH);
-    if ((flags & ~O_CLOEXEC) != 0) return errno.fail(errno.INVAL);
+    if ((flags & ~(O_ACCMODE | O_CREAT | O_TRUNC | O_CLOEXEC)) != 0) return errno.fail(errno.INVAL);
+    const writable = (flags & O_ACCMODE) == O_WRONLY or (flags & O_ACCMODE) == O_RDWR;
+    const readable = (flags & O_ACCMODE) != O_WRONLY;
+    if ((flags & O_TRUNC) != 0 and !writable) return errno.fail(errno.INVAL);
 
     const raw_path = userCString(path_ptr) orelse return errno.fail(errno.FAULT);
     const path = process.resolvePath(raw_path) catch |err| return mapPathError(err);
-    const inode = fs.vfs.lookup(path) catch |err| return mapFsError(err);
+    const inode = fs.vfs.lookup(path) catch |err| {
+        if (err == error.NotFound and (flags & O_CREAT) != 0) {
+            const file = fs.vfs.createFile(path) catch |create_err| return mapFsError(create_err);
+            const open_file = allocOpenFile(file, readable, writable) orelse return errno.fail(errno.NFILE);
+            const descriptor: Descriptor = .{
+                .target = .{ .file = open_file },
+                .close_on_exec = (flags & O_CLOEXEC) != 0,
+            };
+            const slot = process.install(descriptor) orelse {
+                releaseTarget(descriptor.target);
+                return errno.fail(errno.NFILE);
+            };
+            return @intCast(slot);
+        }
+        return mapFsError(err);
+    };
 
     const descriptor: Descriptor = switch (inode.kind) {
         .file => blk: {
             const file = fs.vfs.open(path) catch |err| return mapFsError(err);
-            const open_file = allocOpenFile(file) orelse return errno.fail(errno.NFILE);
+            const open_file = allocOpenFile(file, readable, writable) orelse return errno.fail(errno.NFILE);
+            if ((flags & O_TRUNC) != 0) open_file.file.truncate(0) catch |err| {
+                releaseOpenFile(open_file);
+                return mapFsError(err);
+            };
             break :blk .{
                 .target = .{ .file = open_file },
                 .close_on_exec = (flags & O_CLOEXEC) != 0,
@@ -619,6 +660,63 @@ fn sysGetdents64(fd_arg: u64, dirent_ptr: u64, count: u64) i64 {
         writeDirent64(dest[written .. written + record_len], entry, open_dir.dir.cookie);
         written += record_len;
     }
+}
+
+fn sysTruncate(path_ptr: u64, len: u64) i64 {
+    if (len > std.math.maxInt(usize)) return errno.fail(errno.FBIG);
+    const process = currentProcess() orelse return errno.fail(errno.SRCH);
+    const raw_path = userCString(path_ptr) orelse return errno.fail(errno.FAULT);
+    const path = process.resolvePath(raw_path) catch |err| return mapPathError(err);
+    fs.vfs.truncatePath(path, @intCast(len)) catch |err| return mapFsError(err);
+    return 0;
+}
+
+fn sysFtruncate(fd_arg: u64, len: u64) i64 {
+    if (len > std.math.maxInt(usize)) return errno.fail(errno.FBIG);
+    const process = currentProcess() orelse return errno.fail(errno.SRCH);
+    const fd = fdIndex(fd_arg) orelse return errno.fail(errno.BADF);
+    const descriptor = process.get(fd) orelse return errno.fail(errno.BADF);
+    const open_file = switch (descriptor.target) {
+        .file => |open_file| open_file,
+        .stdin, .stdout, .stderr, .dir, .pipe_read, .pipe_write => return errno.fail(errno.BADF),
+    };
+    if (!open_file.writable) return errno.fail(errno.BADF);
+    open_file.file.truncate(@intCast(len)) catch |err| return mapFsError(err);
+    return 0;
+}
+
+fn sysMkdir(path_ptr: u64) i64 {
+    const process = currentProcess() orelse return errno.fail(errno.SRCH);
+    const raw_path = userCString(path_ptr) orelse return errno.fail(errno.FAULT);
+    const path = process.resolvePath(raw_path) catch |err| return mapPathError(err);
+    if (fs.vfs.lookup(path)) |_| {
+        return errno.fail(errno.EXIST);
+    } else |err| {
+        if (err != error.NotFound) return mapFsError(err);
+    }
+    fs.vfs.mkdir(path) catch |err| return mapFsError(err);
+    return 0;
+}
+
+fn sysUnlink(path_ptr: u64) i64 {
+    const process = currentProcess() orelse return errno.fail(errno.SRCH);
+    const raw_path = userCString(path_ptr) orelse return errno.fail(errno.FAULT);
+    const path = process.resolvePath(raw_path) catch |err| return mapPathError(err);
+    fs.vfs.unlink(path) catch |err| return mapFsError(err);
+    return 0;
+}
+
+fn sysRename(old_path_ptr: u64, new_path_ptr: u64) i64 {
+    const process = currentProcess() orelse return errno.fail(errno.SRCH);
+    const raw_old_path = userCString(old_path_ptr) orelse return errno.fail(errno.FAULT);
+    const raw_new_path = userCString(new_path_ptr) orelse return errno.fail(errno.FAULT);
+    const resolved_old_path = process.resolvePath(raw_old_path) catch |err| return mapPathError(err);
+    var old_path_buffer: [fs.path.MAX_PATH_BYTES]u8 = undefined;
+    @memcpy(old_path_buffer[0..resolved_old_path.len], resolved_old_path);
+    const old_path = old_path_buffer[0..resolved_old_path.len];
+    const new_path = process.resolvePath(raw_new_path) catch |err| return mapPathError(err);
+    fs.vfs.rename(old_path, new_path) catch |err| return mapFsError(err);
+    return 0;
 }
 
 fn sysExecve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) i64 {
@@ -791,12 +889,14 @@ fn cleanupDefunctProcessTables() void {
     }
 }
 
-fn allocOpenFile(file: fs.vfs.File) ?*OpenFile {
+fn allocOpenFile(file: fs.vfs.File, readable: bool, writable: bool) ?*OpenFile {
     for (&open_files) |*open_file| {
         if (!open_file.used) {
             open_file.* = .{
                 .used = true,
                 .file = file,
+                .readable = readable,
+                .writable = writable,
                 .ref_count = 1,
             };
             return open_file;
@@ -1090,9 +1190,11 @@ fn mapFsError(err: fs.vfs.Error) i64 {
         error.NotFound => errno.NOENT,
         error.NotDirectory => errno.NOTDIR,
         error.IsDirectory => errno.ISDIR,
-        error.AlreadyExists => errno.INVAL,
+        error.AlreadyExists => errno.EXIST,
         error.InvalidPath => errno.INVAL,
         error.PathTooLong => errno.NAMETOOLONG,
+        error.FileTooLarge => errno.FBIG,
+        error.DirectoryNotEmpty => errno.NOTEMPTY,
         error.TooManyNodes => errno.NFILE,
         error.NameStorageFull => errno.NFILE,
         error.MalformedInitramfs => errno.IO,
@@ -1119,8 +1221,11 @@ fn mapSpawnError(err: anyerror) i64 {
         error.NotFound => errno.NOENT,
         error.NotDirectory => errno.NOTDIR,
         error.IsDirectory => errno.ISDIR,
-        error.AlreadyExists, error.InvalidPath => errno.INVAL,
+        error.AlreadyExists => errno.EXIST,
+        error.InvalidPath => errno.INVAL,
         error.PathTooLong => errno.NAMETOOLONG,
+        error.FileTooLarge => errno.FBIG,
+        error.DirectoryNotEmpty => errno.NOTEMPTY,
         error.TooManyNodes,
         error.NameStorageFull,
         error.MalformedInitramfs,

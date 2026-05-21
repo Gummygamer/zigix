@@ -70,6 +70,11 @@ pub const TEST_syscall_getdents64 = testing.Test{
     .run = syscallGetdents64,
 };
 
+pub const TEST_syscall_writable_memfs = testing.Test{
+    .name = "syscall_writable_memfs",
+    .run = syscallWritableMemfs,
+};
+
 pub const TEST_syscall_pipe = testing.Test{
     .name = "syscall_pipe",
     .run = syscallPipe,
@@ -487,6 +492,86 @@ fn syscallGetdents64() testing.TestError!void {
     }
     if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(file_fd), 0, 0, 0, 0, 0) != 0) {
         return error.SyscallCloseFailed;
+    }
+}
+
+fn syscallWritableMemfs() testing.TestError!void {
+    const tmp = "/tmp\x00";
+    const out = "/tmp/out\x00";
+    const renamed = "/tmp/renamed\x00";
+    const missing = "/tmp/missing\x00";
+    const flags = syscall.dispatch.O_CREAT | syscall.dispatch.O_RDWR | syscall.dispatch.O_TRUNC;
+
+    if (syscall.dispatch.invoke(syscall.numbers.mkdir, @intFromPtr(tmp.ptr), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallMkdirFailed;
+    }
+    _ = fs.vfs.lookup("/tmp") catch return error.SyscallMkdirDirectLookupMissing;
+    var stat: syscall.Stat = .{};
+    if (syscall.dispatch.invoke(syscall.numbers.stat, @intFromPtr(tmp.ptr), @intFromPtr(&stat), 0, 0, 0, 0) != 0) {
+        return error.SyscallMkdirPathMissing;
+    }
+    const duplicate_mkdir = syscall.dispatch.invoke(syscall.numbers.mkdir, @intFromPtr(tmp.ptr), 0, 0, 0, 0, 0);
+    if (duplicate_mkdir == 0) return error.SyscallMkdirExistingAccepted;
+    if (duplicate_mkdir != -syscall.errno.EXIST) return error.SyscallMkdirExistingWrongErrno;
+
+    const fd = syscall.dispatch.invoke(syscall.numbers.open, @intFromPtr(out.ptr), flags, 0, 0, 0, 0);
+    if (fd < 3) return error.SyscallCreateFailed;
+
+    const message = "hello";
+    if (syscall.dispatch.invoke(syscall.numbers.write, @intCast(fd), @intFromPtr(message.ptr), message.len, 0, 0, 0) != message.len) {
+        return error.SyscallFileWriteFailed;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.lseek, @intCast(fd), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallLseekFailed;
+    }
+
+    var buf: [8]u8 = undefined;
+    if (syscall.dispatch.invoke(syscall.numbers.read, @intCast(fd), @intFromPtr(&buf), message.len, 0, 0, 0) != message.len) {
+        return error.SyscallFileReadFailed;
+    }
+    if (!std.mem.eql(u8, buf[0..message.len], message)) return error.SyscallFileReadWrongData;
+
+    if (syscall.dispatch.invoke(syscall.numbers.ftruncate, @intCast(fd), 2, 0, 0, 0, 0) != 0) {
+        return error.SyscallFtruncateFailed;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.lseek, @intCast(fd), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallLseekFailed;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.read, @intCast(fd), @intFromPtr(&buf), buf.len, 0, 0, 0) != 2) {
+        return error.SyscallFtruncateSizeWrong;
+    }
+    if (!std.mem.eql(u8, buf[0..2], "he")) return error.SyscallFtruncateDataWrong;
+    if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(fd), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallCloseFailed;
+    }
+
+    if (syscall.dispatch.invoke(syscall.numbers.rename, @intFromPtr(out.ptr), @intFromPtr(renamed.ptr), 0, 0, 0, 0) != 0) {
+        return error.SyscallRenameFailed;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.stat, @intFromPtr(out.ptr), @intFromPtr(&stat), 0, 0, 0, 0) != -syscall.errno.NOENT) {
+        return error.SyscallRenameOldPathSurvived;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.stat, @intFromPtr(renamed.ptr), @intFromPtr(&stat), 0, 0, 0, 0) != 0) {
+        return error.SyscallRenameNewPathMissing;
+    }
+    if (stat.size != 2) return error.SyscallRenameSizeWrong;
+
+    if (syscall.dispatch.invoke(syscall.numbers.truncate, @intFromPtr(renamed.ptr), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallTruncateFailed;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.stat, @intFromPtr(renamed.ptr), @intFromPtr(&stat), 0, 0, 0, 0) != 0) {
+        return error.SyscallStatFailed;
+    }
+    if (stat.size != 0) return error.SyscallTruncateSizeWrong;
+
+    if (syscall.dispatch.invoke(syscall.numbers.unlink, @intFromPtr(renamed.ptr), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallUnlinkFailed;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.stat, @intFromPtr(renamed.ptr), @intFromPtr(&stat), 0, 0, 0, 0) != -syscall.errno.NOENT) {
+        return error.SyscallUnlinkPathSurvived;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.unlink, @intFromPtr(missing.ptr), 0, 0, 0, 0, 0) != -syscall.errno.NOENT) {
+        return error.SyscallUnlinkMissingAccepted;
     }
 }
 

@@ -18,7 +18,12 @@ pub const SYS_getpid: u64 = 39;
 pub const SYS_execve: u64 = 59;
 pub const SYS_exit: u64 = 60;
 pub const SYS_wait4: u64 = 61;
+pub const SYS_truncate: u64 = 76;
+pub const SYS_ftruncate: u64 = 77;
 pub const SYS_chdir: u64 = 80;
+pub const SYS_rename: u64 = 82;
+pub const SYS_mkdir: u64 = 83;
+pub const SYS_unlink: u64 = 87;
 pub const SYS_getppid: u64 = 110;
 pub const SYS_getdents64: u64 = 217;
 pub const SYS_exit_group: u64 = 231;
@@ -30,13 +35,20 @@ pub const EBADF: i32 = 9;
 pub const EAGAIN: i32 = 11;
 pub const ENOMEM: i32 = 12;
 pub const EFAULT: i32 = 14;
+pub const EEXIST: i32 = 17;
 pub const ENOTDIR: i32 = 20;
 pub const ENOENT: i32 = 2;
 pub const EINVAL: i32 = 22;
 pub const ENFILE: i32 = 23;
 pub const ENOTTY: i32 = 25;
+pub const EFBIG: i32 = 27;
 pub const ENOSYS: i32 = 38;
+pub const ENOTEMPTY: i32 = 39;
 
+pub const O_WRONLY: u64 = 0o1;
+pub const O_RDWR: u64 = 0o2;
+pub const O_CREAT: u64 = 0o100;
+pub const O_TRUNC: u64 = 0o1000;
 pub const O_CLOEXEC: u64 = 0o2000000;
 
 pub const SEEK_SET: u64 = 0;
@@ -108,6 +120,26 @@ pub fn getppid() i64 {
 
 pub fn getdents64(fd: u64, buf: []u8) i64 {
     return syscall3(SYS_getdents64, fd, @intFromPtr(buf.ptr), buf.len);
+}
+
+pub fn truncate(path: [*:0]const u8, len: u64) i64 {
+    return syscall2(SYS_truncate, @intFromPtr(path), len);
+}
+
+pub fn ftruncate(fd: u64, len: u64) i64 {
+    return syscall2(SYS_ftruncate, fd, len);
+}
+
+pub fn mkdir(path: [*:0]const u8, mode: u64) i64 {
+    return syscall2(SYS_mkdir, @intFromPtr(path), mode);
+}
+
+pub fn unlink(path: [*:0]const u8) i64 {
+    return syscall1(SYS_unlink, @intFromPtr(path));
+}
+
+pub fn rename(old_path: [*:0]const u8, new_path: [*:0]const u8) i64 {
+    return syscall2(SYS_rename, @intFromPtr(old_path), @intFromPtr(new_path));
 }
 
 pub fn execve(path: [*:0]const u8, argv: usize, envp: usize) i64 {

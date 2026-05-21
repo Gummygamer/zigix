@@ -472,7 +472,7 @@ surface needed by a visible shell/libc behavior.
       observe real process identity.
 - [x] `readdir`/`getdents64`: needed before `ls`-style utilities or a useful
       shell directory listing can exist.
-- [ ] Minimal writable memfs operations: `mkdir`, `unlink`, `rename`, and
+- [x] Minimal writable memfs operations: `mkdir`, `unlink`, `rename`, and
       write/truncate on memfs files, with inode-backed file descriptor tests.
 - [ ] Shell redirection: `cmd > file`, `cmd < file`, and descriptor setup for
       spawned children. This should depend on writable memfs and `dup2`.

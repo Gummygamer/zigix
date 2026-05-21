@@ -7,18 +7,21 @@ const vfs = @import("vfs.zig");
 
 pub const MAX_NODES: usize = 64;
 const MAX_NAME_BYTES: usize = 2048;
+const MAX_FILE_BYTES: usize = 4096;
 
 pub const FileSystem = struct {
     nodes: [MAX_NODES]vfs.Inode = undefined,
+    file_storage: [MAX_NODES][MAX_FILE_BYTES]u8 = undefined,
+    file_owned: [MAX_NODES]bool = [_]bool{false} ** MAX_NODES,
     node_count: usize = 0,
     name_storage: [MAX_NAME_BYTES]u8 = undefined,
     name_used: usize = 0,
 
-    pub fn init() FileSystem {
-        var fs = FileSystem{};
-        fs.nodes[0] = .{ .name = "", .kind = .dir };
-        fs.node_count = 1;
-        return fs;
+    pub fn init(self: *FileSystem) void {
+        self.node_count = 1;
+        self.name_used = 0;
+        @memset(&self.file_owned, false);
+        self.nodes[0] = .{ .name = "", .kind = .dir };
     }
 
     pub fn mount(self: *FileSystem) vfs.Mount {
@@ -29,16 +32,11 @@ pub const FileSystem = struct {
     }
 
     pub fn mkdir(self: *FileSystem, absolute_path: []const u8) vfs.Error!*const vfs.Inode {
-        var normalized_buffer: [path.MAX_PATH_BYTES]u8 = undefined;
-        const normalized = path.normalizeInto(absolute_path, &normalized_buffer) catch |err| return mapPathError(err);
-        if (std.mem.eql(u8, normalized, "/")) return &self.nodes[0];
-
-        var parent_index: usize = 0;
-        var it = path.iterator(normalized);
-        while (it.next()) |component| {
-            parent_index = try self.ensureChild(parent_index, component, .dir);
-        }
-        return &self.nodes[parent_index];
+        var path_buffer: [path.MAX_PATH_BYTES]u8 = undefined;
+        const location = try self.resolveParent(absolute_path, &path_buffer);
+        if (self.findChild(location.parent, location.name) != null) return error.AlreadyExists;
+        const index = try self.createNode(location.parent, location.name, .dir);
+        return &self.nodes[index];
     }
 
     pub fn addFile(self: *FileSystem, absolute_path: []const u8, data: []const u8) vfs.Error!*const vfs.Inode {
@@ -66,6 +64,16 @@ pub const FileSystem = struct {
         }
     }
 
+    pub fn createFile(self: *FileSystem, absolute_path: []const u8) vfs.Error!*const vfs.Inode {
+        var path_buffer: [path.MAX_PATH_BYTES]u8 = undefined;
+        const location = try self.resolveParent(absolute_path, &path_buffer);
+        if (self.findChild(location.parent, location.name) != null) return error.AlreadyExists;
+        const index = try self.createNode(location.parent, location.name, .file);
+        self.file_owned[index] = true;
+        self.nodes[index].data = self.file_storage[index][0..0];
+        return &self.nodes[index];
+    }
+
     pub fn lookup(self: *FileSystem, absolute_path: []const u8) vfs.Error!*const vfs.Inode {
         var normalized_buffer: [path.MAX_PATH_BYTES]u8 = undefined;
         const normalized = path.normalizeInto(absolute_path, &normalized_buffer) catch |err| return mapPathError(err);
@@ -88,6 +96,33 @@ pub const FileSystem = struct {
         return amount;
     }
 
+    pub fn write(self: *FileSystem, inode: *const vfs.Inode, offset: usize, bytes: []const u8) vfs.Error!usize {
+        if (inode.kind != .file) return error.IsDirectory;
+        const index = self.indexOf(inode) orelse return error.NotFound;
+        const end = offset + bytes.len;
+        if (end > MAX_FILE_BYTES) return error.FileTooLarge;
+        try self.ensureOwnedFile(index);
+        const current_len = self.nodes[index].data.len;
+        if (offset > current_len) {
+            @memset(self.file_storage[index][current_len..offset], 0);
+        }
+        @memcpy(self.file_storage[index][offset..end], bytes);
+        if (end > current_len) self.nodes[index].data = self.file_storage[index][0..end];
+        return bytes.len;
+    }
+
+    pub fn truncate(self: *FileSystem, inode: *const vfs.Inode, len: usize) vfs.Error!void {
+        if (inode.kind != .file) return error.IsDirectory;
+        if (len > MAX_FILE_BYTES) return error.FileTooLarge;
+        const index = self.indexOf(inode) orelse return error.NotFound;
+        try self.ensureOwnedFile(index);
+        const current_len = self.nodes[index].data.len;
+        if (len > current_len) {
+            @memset(self.file_storage[index][current_len..len], 0);
+        }
+        self.nodes[index].data = self.file_storage[index][0..len];
+    }
+
     pub fn readdir(self: *FileSystem, inode: *const vfs.Inode, cookie: *usize) vfs.Error!?vfs.DirEntry {
         if (inode.kind != .dir) return error.NotDirectory;
         const index = self.indexOf(inode) orelse return error.NotFound;
@@ -106,12 +141,61 @@ pub const FileSystem = struct {
         return null;
     }
 
+    pub fn unlink(self: *FileSystem, absolute_path: []const u8) vfs.Error!void {
+        var path_buffer: [path.MAX_PATH_BYTES]u8 = undefined;
+        const location = try self.resolveParent(absolute_path, &path_buffer);
+        const index = self.findChild(location.parent, location.name) orelse return error.NotFound;
+        if (self.nodes[index].kind == .dir) {
+            if (self.nodes[index].first_child != null) return error.DirectoryNotEmpty;
+        }
+        self.unlinkChild(location.parent, index);
+    }
+
+    pub fn rename(self: *FileSystem, old_path: []const u8, new_path: []const u8) vfs.Error!void {
+        var old_path_buffer: [path.MAX_PATH_BYTES]u8 = undefined;
+        var new_path_buffer: [path.MAX_PATH_BYTES]u8 = undefined;
+        const old_location = try self.resolveParent(old_path, &old_path_buffer);
+        const index = self.findChild(old_location.parent, old_location.name) orelse return error.NotFound;
+        const new_location = try self.resolveParent(new_path, &new_path_buffer);
+        if (self.findChild(new_location.parent, new_location.name) != null) return error.AlreadyExists;
+
+        self.unlinkChild(old_location.parent, index);
+        self.nodes[index].parent = new_location.parent;
+        self.nodes[index].name = try self.internName(new_location.name);
+        self.nodes[index].next_sibling = self.nodes[new_location.parent].first_child;
+        self.nodes[new_location.parent].first_child = index;
+    }
+
     fn ensureChild(self: *FileSystem, parent_index: usize, name: []const u8, kind: vfs.NodeKind) vfs.Error!usize {
         if (self.findChild(parent_index, name)) |child_index| {
             if (self.nodes[child_index].kind != kind) return error.NotDirectory;
             return child_index;
         }
         return self.createNode(parent_index, name, kind);
+    }
+
+    const Location = struct {
+        parent: usize,
+        name: []const u8,
+    };
+
+    fn resolveParent(self: *FileSystem, absolute_path: []const u8, normalized_buffer: *[path.MAX_PATH_BYTES]u8) vfs.Error!Location {
+        const normalized = path.normalizeInto(absolute_path, normalized_buffer) catch |err| return mapPathError(err);
+        if (std.mem.eql(u8, normalized, "/")) return error.InvalidPath;
+
+        var parent_index: usize = 0;
+        var it = path.iterator(normalized);
+        var component = it.next() orelse return error.InvalidPath;
+        while (true) {
+            if (it.next()) |next_component| {
+                const child_index = self.findChild(parent_index, component) orelse return error.NotFound;
+                if (self.nodes[child_index].kind != .dir) return error.NotDirectory;
+                parent_index = child_index;
+                component = next_component;
+                continue;
+            }
+            return .{ .parent = parent_index, .name = component };
+        }
     }
 
     fn createNode(self: *FileSystem, parent_index: usize, name: []const u8, kind: vfs.NodeKind) vfs.Error!usize {
@@ -125,8 +209,30 @@ pub const FileSystem = struct {
             .parent = parent_index,
             .next_sibling = self.nodes[parent_index].first_child,
         };
+        self.file_owned[index] = false;
         self.nodes[parent_index].first_child = index;
         return index;
+    }
+
+    fn ensureOwnedFile(self: *FileSystem, index: usize) vfs.Error!void {
+        if (self.file_owned[index]) return;
+        if (self.nodes[index].data.len > MAX_FILE_BYTES) return error.FileTooLarge;
+        @memcpy(self.file_storage[index][0..self.nodes[index].data.len], self.nodes[index].data);
+        self.nodes[index].data = self.file_storage[index][0..self.nodes[index].data.len];
+        self.file_owned[index] = true;
+    }
+
+    fn unlinkChild(self: *FileSystem, parent_index: usize, child_index: usize) void {
+        var cursor = &self.nodes[parent_index].first_child;
+        while (cursor.*) |index| {
+            if (index == child_index) {
+                cursor.* = self.nodes[index].next_sibling;
+                self.nodes[index].next_sibling = null;
+                self.nodes[index].parent = null;
+                return;
+            }
+            cursor = &self.nodes[index].next_sibling;
+        }
     }
 
     fn findChild(self: *const FileSystem, parent_index: usize, name: []const u8) ?usize {
@@ -156,7 +262,13 @@ pub const FileSystem = struct {
 
 const ops = vfs.Operations{
     .lookup = lookupOp,
+    .create_file = createFileOp,
+    .mkdir = mkdirOp,
+    .unlink = unlinkOp,
+    .rename = renameOp,
     .read = readOp,
+    .write = writeOp,
+    .truncate = truncateOp,
     .readdir = readdirOp,
 };
 
@@ -165,9 +277,39 @@ fn lookupOp(ctx: *anyopaque, absolute_path: []const u8) vfs.Error!*const vfs.Ino
     return fs.lookup(absolute_path);
 }
 
+fn createFileOp(ctx: *anyopaque, absolute_path: []const u8) vfs.Error!*const vfs.Inode {
+    const fs: *FileSystem = @ptrCast(@alignCast(ctx));
+    return fs.createFile(absolute_path);
+}
+
+fn mkdirOp(ctx: *anyopaque, absolute_path: []const u8) vfs.Error!*const vfs.Inode {
+    const fs: *FileSystem = @ptrCast(@alignCast(ctx));
+    return fs.mkdir(absolute_path);
+}
+
+fn unlinkOp(ctx: *anyopaque, absolute_path: []const u8) vfs.Error!void {
+    const fs: *FileSystem = @ptrCast(@alignCast(ctx));
+    return fs.unlink(absolute_path);
+}
+
+fn renameOp(ctx: *anyopaque, old_path: []const u8, new_path: []const u8) vfs.Error!void {
+    const fs: *FileSystem = @ptrCast(@alignCast(ctx));
+    return fs.rename(old_path, new_path);
+}
+
 fn readOp(ctx: *anyopaque, inode: *const vfs.Inode, offset: usize, dest: []u8) vfs.Error!usize {
     const fs: *FileSystem = @ptrCast(@alignCast(ctx));
     return fs.read(inode, offset, dest);
+}
+
+fn writeOp(ctx: *anyopaque, inode: *const vfs.Inode, offset: usize, bytes: []const u8) vfs.Error!usize {
+    const fs: *FileSystem = @ptrCast(@alignCast(ctx));
+    return fs.write(inode, offset, bytes);
+}
+
+fn truncateOp(ctx: *anyopaque, inode: *const vfs.Inode, len: usize) vfs.Error!void {
+    const fs: *FileSystem = @ptrCast(@alignCast(ctx));
+    return fs.truncate(inode, len);
 }
 
 fn readdirOp(ctx: *anyopaque, inode: *const vfs.Inode, cookie: *usize) vfs.Error!?vfs.DirEntry {

@@ -63,7 +63,12 @@ The syscall layer uses Linux errno numbers for the exposed set:
 | 59 | `execve` | `int execve(const char *path, char *const argv[], char *const envp[])` |
 | 60 | `exit` | `void exit(int status)` |
 | 61 | `wait4` | `pid_t wait4(pid_t pid, int *wstatus, int options, void *rusage)` |
+| 76 | `truncate` | `int truncate(const char *path, off_t length)` |
+| 77 | `ftruncate` | `int ftruncate(int fd, off_t length)` |
 | 80 | `chdir` | `int chdir(const char *path)` |
+| 82 | `rename` | `int rename(const char *oldpath, const char *newpath)` |
+| 83 | `mkdir` | `int mkdir(const char *path, mode_t mode)` |
+| 87 | `unlink` | `int unlink(const char *path)` |
 | 110 | `getppid` | `pid_t getppid(void)` |
 | 217 | `getdents64` | `int getdents64(int fd, void *dirp, unsigned int count)` |
 | 231 | `exit_group` | `void exit_group(int status)` |
@@ -79,18 +84,20 @@ Errors: `EBADF`, `EFAULT`, VFS-mapped errors.
 
 ### `write`
 
-Writes bytes to the serial console for `fd == 1` or `fd == 2`, or to a pipe
-write end. VFS-backed descriptors and pipe read ends are not writable yet.
-Writing a pipe with no read endpoints fails with `EPIPE`.
+Writes bytes to the serial console for `fd == 1` or `fd == 2`, to a writable
+memfs file descriptor, or to a pipe write end. Pipe read ends and read-only
+file descriptors are not writable. Writing a pipe with no read endpoints fails
+with `EPIPE`.
 
 Errors: `EBADF`, `EFAULT`, `EPIPE`.
 
 ### `open`
 
-Opens a VFS path read-only. Relative paths resolve against the caller's current
-working directory. `flags` may be `0` or `O_CLOEXEC`
-(`02000000`); `mode` is ignored. Returned descriptors use the process file
-table and start at `3` while standard descriptors are still open.
+Opens a VFS path. Relative paths resolve against the caller's current working
+directory. `flags` may combine `O_WRONLY` (`01`), `O_RDWR` (`02`), `O_CREAT`
+(`0100`), `O_TRUNC` (`01000`), and `O_CLOEXEC` (`02000000`); `mode` is ignored.
+Returned descriptors use the process file table and start at `3` while
+standard descriptors are still open.
 
 Errors: `EINVAL`, `EFAULT`, `ENFILE`, VFS-mapped errors.
 
@@ -145,6 +152,13 @@ endpoint state with `oldfd`, and their close-on-exec flag is cleared.
 
 Errors: `EBADF`.
 
+### `truncate` / `ftruncate`
+
+Resizes memfs files. Extending a file zero-fills the new range. The current
+fixed-capacity memfs stores at most 4096 bytes per file.
+
+Errors: `EBADF`, `EFAULT`, `EFBIG`, `EISDIR`, VFS-mapped errors.
+
 ### `getpid` / `getppid`
 
 Returns the caller's process ID or its parent's process ID. The bootstrap
@@ -161,6 +175,16 @@ use the Linux `linux_dirent64` byte layout: `d_ino`, `d_off`, `d_reclen`,
 real inode IDs.
 
 Errors: `EBADF`, `EFAULT`, `EINVAL`, `ENOTDIR`, VFS-mapped errors.
+
+### `mkdir` / `unlink` / `rename`
+
+Creates directories, removes files or empty directories, and renames an entry
+within the memfs namespace. `rename` currently fails with `EEXIST` if the
+target already exists; replacement semantics are deferred until a caller needs
+them.
+
+Errors: `EEXIST`, `EFAULT`, `EINVAL`, `ENOENT`, `ENOTDIR`, `ENOTEMPTY`,
+VFS-mapped errors.
 
 ### `execve`
 

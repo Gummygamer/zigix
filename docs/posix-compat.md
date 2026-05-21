@@ -7,12 +7,14 @@ Update this file whenever syscall or POSIX semantics change.
 
 | API      | Status  | Notes                                      | Tests |
 | -------- | ------- | ------------------------------------------ | ----- |
-| `read`   | partial | VFS files, polled serial stdin with `EAGAIN` when empty, pipe read ends | `syscall_vfs`, `syscall_fd_table`, `syscall_pipe`, `syscall_stdin_console`, `tinysh_interactive` |
-| `write`  | partial | stdout/stderr serial output, pipe write ends | `syscall_write`, `syscall_pipe` |
-| `open`   | partial | read-only VFS paths; relative paths resolve against per-process cwd | `syscall_vfs`, `syscall_fd_table`, `syscall_chdir` |
+| `read`   | partial | VFS files, writable memfs files, polled serial stdin with `EAGAIN` when empty, pipe read ends | `syscall_vfs`, `syscall_fd_table`, `syscall_writable_memfs`, `syscall_pipe`, `syscall_stdin_console`, `tinysh_interactive` |
+| `write`  | partial | stdout/stderr serial output, writable memfs files, pipe write ends | `syscall_write`, `syscall_pipe`, `syscall_writable_memfs` |
+| `open`   | partial | VFS paths; relative paths resolve against per-process cwd; `O_CREAT`/`O_TRUNC` work for memfs files | `syscall_vfs`, `syscall_fd_table`, `syscall_chdir`, `syscall_writable_memfs` |
 | `close`  | partial | per-process fd tables; spawned children inherit descriptors lazily | `syscall_vfs`, `syscall_fd_table`, `syscall_pipe`, `process_fd_tables` |
 | `lseek`  | partial | VFS files only                             | `syscall_vfs`, `syscall_fd_table` |
 | `stat`   | partial | compact Zigix stat layout                  | `syscall_vfs` |
+| `mkdir` / `unlink` / `rename` | partial | fixed-capacity memfs namespace operations; rename does not replace an existing target yet | `syscall_writable_memfs` |
+| `truncate` / `ftruncate` | partial | memfs files up to 4096 bytes per inode | `syscall_writable_memfs` |
 | `getdents64` | partial | Linux-style directory records from directory descriptors; inode numbers are synthetic | `syscall_getdents64` |
 | `pipe`   | partial | bounded buffer; first park/wake path for empty reads and full writes; cooperative run queues wake blocked endpoints | `syscall_pipe`, `syscall_pipe_blocking` |
 | `dup`    | partial | lowest free fd; clears close-on-exec       | `syscall_fd_table`, `syscall_pipe` |
