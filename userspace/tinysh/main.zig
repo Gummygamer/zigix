@@ -87,8 +87,21 @@ fn runCommand(parsed: ParsedCommand, marker_name: []const u8) CommandAction {
     }
     if (eql(command, "cd")) {
         if (parsed.hasRedirection()) fail(marker_name, "redir");
-        if (parsed.argc != 2) fail(marker_name, "cd");
-        if (sys.chdir(parsed.argv[1].?) != 0) fail(marker_name, "cd");
+        if (parsed.argc != 2) {
+            if (isInteractiveMarker(marker_name)) {
+                _ = sys.write(sys.STDOUT, "cd: usage: cd <path>\n");
+                return .continue_loop;
+            }
+            fail(marker_name, "cd");
+        }
+        const ret = sys.chdir(parsed.argv[1].?);
+        if (ret != 0) {
+            if (isInteractiveMarker(marker_name)) {
+                writeCdError(parsed.argv[1].?, ret);
+                return .continue_loop;
+            }
+            fail(marker_name, "cd");
+        }
         return .continue_loop;
     }
 
@@ -312,8 +325,28 @@ fn sliceEql(left: []const u8, right: []const u8) bool {
     return true;
 }
 
+fn isInteractiveMarker(marker_name: []const u8) bool {
+    return sliceEql(marker_name, "tinysh_interactive");
+}
+
+fn writeCdError(path: [*:0]const u8, ret: i64) void {
+    _ = sys.write(sys.STDOUT, "cd: ");
+    _ = sys.write(sys.STDOUT, cStringSlice(path));
+    _ = sys.write(sys.STDOUT, ": ");
+
+    const errno = -ret;
+    if (errno == @as(i64, sys.ENOENT)) {
+        _ = sys.write(sys.STDOUT, "not found");
+    } else if (errno == @as(i64, sys.ENOTDIR)) {
+        _ = sys.write(sys.STDOUT, "not a directory");
+    } else {
+        _ = sys.write(sys.STDOUT, "failed");
+    }
+    _ = sys.write(sys.STDOUT, "\n");
+}
+
 fn writePass(marker_name: []const u8) void {
-    if (sliceEql(marker_name, "tinysh_interactive")) {
+    if (isInteractiveMarker(marker_name)) {
         _ = sys.write(sys.STDOUT, "[ZIGIX:TEST:PASS:tinysh_interactive]\n");
     } else if (sliceEql(marker_name, "tinysh_redirection")) {
         _ = sys.write(sys.STDOUT, "[ZIGIX:TEST:PASS:tinysh_redirection]\n");
@@ -323,7 +356,7 @@ fn writePass(marker_name: []const u8) void {
 }
 
 fn fail(marker_name: []const u8, reason: []const u8) noreturn {
-    if (sliceEql(marker_name, "tinysh_interactive")) {
+    if (isInteractiveMarker(marker_name)) {
         _ = sys.write(sys.STDOUT, "[ZIGIX:TEST:FAIL:tinysh_interactive:");
     } else if (sliceEql(marker_name, "tinysh_redirection")) {
         _ = sys.write(sys.STDOUT, "[ZIGIX:TEST:FAIL:tinysh_redirection:");

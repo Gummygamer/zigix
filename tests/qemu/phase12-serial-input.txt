@@ -1,3 +1,4 @@
 cd /
+cd f
 exec-ok
 exit

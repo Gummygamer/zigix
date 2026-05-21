@@ -1093,6 +1093,7 @@ fn processSpawnResume() testing.TestError!void {
 fn spawnChildImage() testing.TestError!void {
     if (proc.currentRegionCount() != 0) return error.SpawnParentRegionRegistryDirty;
 
+    const free_pages_before = mm.physical.currentStats().tracked_free_pages;
     const child = try proc.spawnChild(proc.currentPid());
     errdefer {
         elf.loader.releaseProcessPages(child);
@@ -1122,13 +1123,12 @@ fn spawnChildImage() testing.TestError!void {
         return error.SpawnChildStackMappingMissing;
     }
 
-    elf.loader.releaseProcessPages(child);
-    if (proc.regionCount(child) != 0) return error.SpawnReleaseLeftChildRegions;
-    if (proc.currentRegionCount() != 0) return error.SpawnReleaseChangedParentRegions;
-
     if (!proc.markExited(child, 0)) return error.SpawnChildExitFailed;
     const waited = syscall.dispatch.invoke(syscall.numbers.wait4, child, 0, 0, 0, 0, 0);
     if (waited != child) return error.SpawnChildReapFailed;
+    if (mm.physical.currentStats().tracked_free_pages != free_pages_before) {
+        return error.SpawnChildReapLeakedPages;
+    }
 }
 
 fn posixSpawnHandoff() testing.TestError!void {

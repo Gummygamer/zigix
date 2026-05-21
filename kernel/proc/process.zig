@@ -362,10 +362,32 @@ pub fn wait4(caller: Pid, requested_pid: i64, status_out: ?*i32, options: u64) E
 }
 
 fn releaseProcessResources(proc: *Process) void {
+    releaseMappedRegions(proc);
     if (proc.address_space.pml4 != 0) {
         mm.paging.destroyUserAddressSpace(proc.address_space);
     }
     releaseKernelStack(proc.kernel_stack);
+}
+
+fn releaseMappedRegions(process: *Process) void {
+    if (process.address_space.pml4 == 0) {
+        process.region_count = 0;
+        return;
+    }
+
+    var region_index: usize = 0;
+    while (region_index < process.region_count) : (region_index += 1) {
+        const region = process.regions[region_index];
+        var page_index: usize = 0;
+        while (page_index < region.page_count) : (page_index += 1) {
+            const addr = region.virtual_start + page_index * mm.physical.PAGE_SIZE;
+            const mapping = mm.paging.walkIn(process.address_space, addr) orelse continue;
+            if (mapping.page_size != mm.physical.PAGE_SIZE) continue;
+            mm.paging.unmapPageIn(process.address_space, addr) catch continue;
+            mm.physical.freePage(mapping.physical);
+        }
+    }
+    process.region_count = 0;
 }
 
 pub fn liveChildForWait(parent: Pid, requested_pid: i64) ?Pid {

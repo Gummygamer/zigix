@@ -68,7 +68,12 @@ pub fn allocPage() Error!usize {
             if ((byte & mask) == 0) {
                 const frame = byte_index * 8 + bit;
                 setUsed(frame);
-                stats.tracked_free_pages -= 1;
+                if (stats.tracked_free_pages == 0) {
+                    stats.tracked_free_pages = countFreePages();
+                }
+                if (stats.tracked_free_pages > 0) {
+                    stats.tracked_free_pages -= 1;
+                }
                 return frame * PAGE_SIZE;
             }
         }

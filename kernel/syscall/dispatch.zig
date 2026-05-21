@@ -819,7 +819,13 @@ fn sysExit(status: u64) noreturn {
     if (proc.exitCurrent(status)) |handoff| {
         arch.user.resumeKernelContext(handoff.context, handoff.return_value);
     }
-    _ = proc.markExited(proc.currentPid(), status);
+    const exiting = proc.currentPid();
+    const parent = proc.parentPid(exiting);
+    _ = proc.markExited(exiting, status);
+    if (parent != null) {
+        arch.interrupts.disable();
+        cpu.halt();
+    }
     arch.interrupts.disable();
     cpu.outb(0xF4, 0x10);
     cpu.halt();
