@@ -71,7 +71,11 @@ pub export fn _isatty(fd: i32) i32 {
 }
 
 pub export fn _getpid() i32 {
-    return 1;
+    return @intCast(abi.syscallResult(sys.getpid(), &errno));
+}
+
+pub export fn _getppid() i32 {
+    return @intCast(abi.syscallResult(sys.getppid(), &errno));
 }
 
 pub export fn _kill(pid: i32, sig: i32) i32 {

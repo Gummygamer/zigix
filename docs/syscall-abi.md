@@ -59,10 +59,12 @@ The syscall layer uses Linux errno numbers for the exposed set:
 | 22 | `pipe` | `int pipe(int pipefd[2])` |
 | 32 | `dup` | `int dup(int oldfd)` |
 | 33 | `dup2` | `int dup2(int oldfd, int newfd)` |
+| 39 | `getpid` | `pid_t getpid(void)` |
 | 59 | `execve` | `int execve(const char *path, char *const argv[], char *const envp[])` |
 | 60 | `exit` | `void exit(int status)` |
 | 61 | `wait4` | `pid_t wait4(pid_t pid, int *wstatus, int options, void *rusage)` |
 | 80 | `chdir` | `int chdir(const char *path)` |
+| 110 | `getppid` | `pid_t getppid(void)` |
 | 231 | `exit_group` | `void exit_group(int status)` |
 | 4000 | `posix_spawn` | `int posix_spawn(const char *path, char *const argv[], char *const envp[])` |
 
@@ -141,6 +143,13 @@ close-on-exec state. New duplicates share VFS open-file offsets or pipe
 endpoint state with `oldfd`, and their close-on-exec flag is cleared.
 
 Errors: `EBADF`.
+
+### `getpid` / `getppid`
+
+Returns the caller's process ID or its parent's process ID. The bootstrap
+process has no parent, so `getppid` returns `0` for PID 1.
+
+Errors: none.
 
 ### `execve`
 

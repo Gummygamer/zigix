@@ -468,7 +468,7 @@ surface needed by a visible shell/libc behavior.
       `execve`, and `posix_spawn` resolve against cwd; `tinysh` has a `cd`
       builtin; the scripted interactive smoke uses `cd /` followed by a
       relative `exec-ok`. Marker: `[ZIGIX:TEST:PASS:syscall_chdir]`.
-- [ ] `getpid`/`getppid`: replace libc shim placeholders and let shell/tests
+- [x] `getpid`/`getppid`: replace libc shim placeholders and let shell/tests
       observe real process identity.
 - [ ] `readdir`/`getdents64`: needed before `ls`-style utilities or a useful
       shell directory listing can exist.

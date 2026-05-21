@@ -14,10 +14,12 @@ pub const SYS_lseek: u64 = 8;
 pub const SYS_pipe: u64 = 22;
 pub const SYS_dup: u64 = 32;
 pub const SYS_dup2: u64 = 33;
+pub const SYS_getpid: u64 = 39;
 pub const SYS_execve: u64 = 59;
 pub const SYS_exit: u64 = 60;
 pub const SYS_wait4: u64 = 61;
 pub const SYS_chdir: u64 = 80;
+pub const SYS_getppid: u64 = 110;
 pub const SYS_exit_group: u64 = 231;
 pub const SYS_posix_spawn: u64 = 4000;
 
@@ -95,6 +97,14 @@ pub fn dup2(old_fd: u64, new_fd: u64) i64 {
     return syscall2(SYS_dup2, old_fd, new_fd);
 }
 
+pub fn getpid() i64 {
+    return syscall0(SYS_getpid);
+}
+
+pub fn getppid() i64 {
+    return syscall0(SYS_getppid);
+}
+
 pub fn execve(path: [*:0]const u8, argv: usize, envp: usize) i64 {
     return syscall3(SYS_execve, @intFromPtr(path), argv, envp);
 }
@@ -137,6 +147,14 @@ pub fn _exit(status: u64) noreturn {
 
 fn ptrArg(ptr: anytype) u64 {
     return if (ptr) |some| @intFromPtr(some) else 0;
+}
+
+fn syscall0(num: u64) i64 {
+    const ret = asm volatile ("int $0x80"
+        : [ret] "={rax}" (-> u64),
+        : [num] "{rax}" (num),
+        : .{ .rcx = true, .r11 = true, .memory = true });
+    return @bitCast(ret);
 }
 
 fn syscall1(num: u64, arg0: u64) i64 {

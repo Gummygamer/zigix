@@ -25,6 +25,10 @@ export fn _start() callconv(.c) noreturn {
         _ = sys.write(sys.STDOUT, "[ZIGIX:TEST:FAIL:libc_shim_newlib:write]\n");
         sys._exit(1);
     }
+    if (libc._getpid() != 1 or libc._getppid() != 0) {
+        _ = sys.write(sys.STDOUT, "[ZIGIX:TEST:FAIL:libc_shim_getpid:identity]\n");
+        sys._exit(1);
+    }
 
     sys._exit(0);
 }

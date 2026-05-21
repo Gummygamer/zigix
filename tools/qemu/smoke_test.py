@@ -94,6 +94,7 @@ PHASES: dict[str, list[str]] = {
         "[ZIGIX:BOOT:OK]",
         "[ZIGIX:TEST:PASS:syscall_dup2]",
         "[ZIGIX:TEST:PASS:syscall_chdir]",
+        "[ZIGIX:TEST:PASS:syscall_getpid]",
         "[ZIGIX:TEST:PASS:tinysh_smoke]",
         "[ZIGIX:TEST:PASS:libc_shim_newlib]",
         "[ZIGIX:INIT:START]",

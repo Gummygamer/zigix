@@ -60,6 +60,11 @@ pub const TEST_syscall_chdir = testing.Test{
     .run = syscallChdir,
 };
 
+pub const TEST_syscall_getpid = testing.Test{
+    .name = "syscall_getpid",
+    .run = syscallGetpid,
+};
+
 pub const TEST_syscall_pipe = testing.Test{
     .name = "syscall_pipe",
     .run = syscallPipe,
@@ -377,6 +382,43 @@ fn syscallChdir() testing.TestError!void {
     if (syscall.dispatch.invoke(syscall.numbers.chdir, @intFromPtr(missing.ptr), 0, 0, 0, 0, 0) != -syscall.errno.NOENT) {
         return error.SyscallChdirMissingAccepted;
     }
+}
+
+fn syscallGetpid() testing.TestError!void {
+    const parent = proc.currentPid();
+    if (syscall.dispatch.invoke(syscall.numbers.getpid, 0, 0, 0, 0, 0, 0) != parent) {
+        return error.SyscallGetpidWrongParent;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.getppid, 0, 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallGetppidWrongInitParent;
+    }
+
+    const child = try proc.spawnChild(parent);
+    var child_reaped = false;
+    errdefer {
+        if (proc.currentPid() != parent) {
+            proc.switchTo(parent) catch {};
+        }
+        if (!child_reaped and proc.runState(child) != null) {
+            _ = proc.markExited(child, 1);
+            _ = syscall.dispatch.invoke(syscall.numbers.wait4, child, 0, 0, 0, 0, 0);
+        }
+    }
+
+    try proc.switchTo(child);
+    if (syscall.dispatch.invoke(syscall.numbers.getpid, 0, 0, 0, 0, 0, 0) != child) {
+        return error.SyscallGetpidWrongChild;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.getppid, 0, 0, 0, 0, 0, 0) != parent) {
+        return error.SyscallGetppidWrongChildParent;
+    }
+
+    try proc.switchTo(parent);
+    if (!proc.markExited(child, 0)) return error.SyscallGetpidChildExitFailed;
+    if (syscall.dispatch.invoke(syscall.numbers.wait4, child, 0, 0, 0, 0, 0) != child) {
+        return error.SyscallGetpidChildReapFailed;
+    }
+    child_reaped = true;
 }
 
 fn syscallPipe() testing.TestError!void {

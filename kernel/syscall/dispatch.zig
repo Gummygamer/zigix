@@ -335,10 +335,12 @@ pub fn invoke(num: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64, a
         numbers.pipe => sysPipe(arg0),
         numbers.dup => sysDup(arg0),
         numbers.dup2 => sysDup2(arg0, arg1),
+        numbers.getpid => sysGetpid(),
         numbers.execve => sysExecve(arg0, arg1, arg2),
         numbers.exit => sysExit(arg0),
         numbers.wait4 => sysWait4(arg0, arg1, arg2, arg3),
         numbers.chdir => sysChdir(arg0),
+        numbers.getppid => sysGetppid(),
         numbers.exit_group => sysExit(arg0),
         numbers.posix_spawn => sysPosixSpawn(arg0, arg1, arg2),
         else => errno.fail(errno.NOSYS),
@@ -550,6 +552,14 @@ fn sysDup2(old_fd_arg: u64, new_fd_arg: u64) i64 {
     const new_fd = fdIndex(new_fd_arg) orelse return errno.fail(errno.BADF);
     if (!process.dupTo(old_fd, new_fd)) return errno.fail(errno.BADF);
     return @intCast(new_fd);
+}
+
+fn sysGetpid() i64 {
+    return @intCast(proc.currentPid());
+}
+
+fn sysGetppid() i64 {
+    return @intCast(proc.parentPid(proc.currentPid()) orelse 0);
 }
 
 fn sysExecve(path_ptr: u64, argv_ptr: u64, envp_ptr: u64) i64 {
