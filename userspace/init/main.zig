@@ -4,11 +4,14 @@ const libc = @import("zigix_newlib");
 const sys = @import("zigix_sys");
 
 export fn _start() callconv(.c) noreturn {
-    const argv = [_]?[*:0]const u8{ "/tinysh", "-c", "exec-ok > redir-out", null };
+    const redir_argv = [_]?[*:0]const u8{ "/tinysh", "-c", "exec-ok > redir-out", null };
+    const cat_argv = [_]?[*:0]const u8{ "/tinysh", "-c", "cat cat-input", null };
     const envp = [_]?[*:0]const u8{ "ZIGIX_PHASE=11", null };
 
     _ = sys.write(sys.STDOUT, "[ZIGIX:INIT:START]\n");
-    runTinysh(&argv, &envp);
+    runProgram("/tinysh", @intFromPtr(&redir_argv), @intFromPtr(&envp), "posix_spawn_user");
+    writeCatInput();
+    runProgram("/tinysh", @intFromPtr(&cat_argv), @intFromPtr(&envp), "cat");
 
     const libc_marker = "[ZIGIX:TEST:PASS:libc_shim_newlib]\n";
     if (libc._write(1, libc_marker.ptr, libc_marker.len) != libc_marker.len) {
@@ -23,16 +26,42 @@ export fn _start() callconv(.c) noreturn {
     sys._exit(0);
 }
 
-fn runTinysh(argv: *const [4]?[*:0]const u8, envp: *const [2]?[*:0]const u8) void {
-    const pid = sys.posixSpawn("/tinysh", @intFromPtr(argv), @intFromPtr(envp));
-    if (pid <= 0) {
-        _ = sys.write(sys.STDOUT, "[ZIGIX:TEST:FAIL:posix_spawn_user:spawn]\n");
+fn writeCatInput() void {
+    const path = "cat-input";
+    const marker = "[ZIGIX:TEST:PASS:cat]\n";
+    const fd = sys.open(path, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 0);
+    if (fd < 0) {
+        _ = sys.write(sys.STDOUT, "[ZIGIX:TEST:FAIL:cat:create]\n");
         sys._exit(1);
+    }
+    if (sys.write(@intCast(fd), marker) != @as(i64, @intCast(marker.len))) {
+        _ = sys.close(@intCast(fd));
+        _ = sys.write(sys.STDOUT, "[ZIGIX:TEST:FAIL:cat:write]\n");
+        sys._exit(1);
+    }
+    if (sys.close(@intCast(fd)) != 0) {
+        _ = sys.write(sys.STDOUT, "[ZIGIX:TEST:FAIL:cat:close]\n");
+        sys._exit(1);
+    }
+}
+
+fn runProgram(path: [*:0]const u8, argv: usize, envp: usize, marker_name: []const u8) void {
+    const pid = sys.posixSpawn(path, argv, envp);
+    if (pid <= 0) {
+        fail(marker_name, "spawn");
     }
 
     var status: i32 = -1;
     if (sys.waitpid(pid, &status, 0) != pid or status != 0) {
-        _ = sys.write(sys.STDOUT, "[ZIGIX:TEST:FAIL:posix_spawn_user:wait]\n");
-        sys._exit(1);
+        fail(marker_name, "wait");
     }
+}
+
+fn fail(marker_name: []const u8, reason: []const u8) noreturn {
+    _ = sys.write(sys.STDOUT, "[ZIGIX:TEST:FAIL:");
+    _ = sys.write(sys.STDOUT, marker_name);
+    _ = sys.write(sys.STDOUT, ":");
+    _ = sys.write(sys.STDOUT, reason);
+    _ = sys.write(sys.STDOUT, "]\n");
+    sys._exit(1);
 }

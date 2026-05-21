@@ -347,6 +347,34 @@ pub fn build(b: *std.Build) void {
 
     const install_exec_ok = b.addInstallArtifact(exec_ok_exe, .{});
 
+    const cat_module = b.createModule(.{
+        .root_source_file = b.path("userspace/cat/main.zig"),
+        .target = kernel_target,
+        .optimize = optimize,
+        .code_model = .small,
+        .red_zone = false,
+        .pic = false,
+        .stack_protector = false,
+        .stack_check = false,
+        .single_threaded = true,
+        .strip = false,
+        .omit_frame_pointer = false,
+        .imports = &.{
+            .{ .name = "zigix_sys", .module = userspace_sys_module },
+        },
+    });
+
+    const cat_exe = b.addExecutable(.{
+        .name = "cat",
+        .root_module = cat_module,
+        .use_llvm = true,
+        .use_lld = true,
+    });
+    cat_exe.setLinkerScript(b.path("userspace/init/linker.ld"));
+    cat_exe.entry = .{ .symbol_name = "_start" };
+
+    const install_cat = b.addInstallArtifact(cat_exe, .{});
+
     const tinysh_module = b.createModule(.{
         .root_source_file = b.path("userspace/tinysh/main.zig"),
         .target = kernel_target,
@@ -384,6 +412,9 @@ pub fn build(b: *std.Build) void {
     pack_initramfs.addArg("exec-ok");
     pack_initramfs.addFileArg(exec_ok_exe.getEmittedBin());
     pack_initramfs.addArg("--entry");
+    pack_initramfs.addArg("cat");
+    pack_initramfs.addFileArg(cat_exe.getEmittedBin());
+    pack_initramfs.addArg("--entry");
     pack_initramfs.addArg("tinysh");
     pack_initramfs.addFileArg(tinysh_exe.getEmittedBin());
     pack_initramfs.setName("mkinitramfs");
@@ -402,6 +433,9 @@ pub fn build(b: *std.Build) void {
     pack_interactive_initramfs.addArg("--entry");
     pack_interactive_initramfs.addArg("exec-ok");
     pack_interactive_initramfs.addFileArg(exec_ok_exe.getEmittedBin());
+    pack_interactive_initramfs.addArg("--entry");
+    pack_interactive_initramfs.addArg("cat");
+    pack_interactive_initramfs.addFileArg(cat_exe.getEmittedBin());
     pack_interactive_initramfs.addArg("--entry");
     pack_interactive_initramfs.addArg("tinysh");
     pack_interactive_initramfs.addFileArg(tinysh_exe.getEmittedBin());
@@ -422,6 +456,7 @@ pub fn build(b: *std.Build) void {
     kernel_step.dependOn(&install_init.step);
     kernel_step.dependOn(&install_init_interactive.step);
     kernel_step.dependOn(&install_exec_ok.step);
+    kernel_step.dependOn(&install_cat.step);
     kernel_step.dependOn(&install_tinysh.step);
     kernel_step.dependOn(&install_initramfs.step);
     kernel_step.dependOn(&install_interactive_initramfs.step);

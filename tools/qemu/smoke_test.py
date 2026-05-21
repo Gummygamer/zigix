@@ -99,6 +99,7 @@ PHASES: dict[str, list[str]] = {
         "[ZIGIX:TEST:PASS:syscall_writable_memfs]",
         "[ZIGIX:TEST:PASS:tinysh_smoke]",
         "[ZIGIX:TEST:PASS:tinysh_redirection]",
+        "[ZIGIX:TEST:PASS:cat]",
         "[ZIGIX:TEST:PASS:libc_shim_newlib]",
         "[ZIGIX:INIT:START]",
         "[ZIGIX:INIT:OK]",

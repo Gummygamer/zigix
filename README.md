@@ -32,10 +32,12 @@ identity syscalls, directory reads, writable memfs, and shell redirection with t
 `[ZIGIX:TEST:PASS:syscall_chdir]`, and
 `[ZIGIX:TEST:PASS:syscall_getpid]`,
 `[ZIGIX:TEST:PASS:syscall_getdents64]`,
-`[ZIGIX:TEST:PASS:syscall_writable_memfs]`, and
-`[ZIGIX:TEST:PASS:tinysh_redirection]`. Relative `open`, `stat`, `execve`, and
-`posix_spawn` paths now resolve against per-process cwd, and `tinysh` has a
-`cd` builtin. The Phase 13 marker remains
+`[ZIGIX:TEST:PASS:syscall_writable_memfs]`,
+`[ZIGIX:TEST:PASS:tinysh_redirection]`, and
+`[ZIGIX:TEST:PASS:cat]`. Relative `open`, `stat`, `execve`, and
+`posix_spawn` paths now resolve against per-process cwd, `tinysh` has a
+`cd` builtin, and the initramfs includes a small `/cat` file-display command.
+The Phase 13 marker remains
 `[ZIGIX:TEST:PASS:libc_shim_newlib]`, emitted by `/init` through the newlib
 `_write` hook. The Phase 12 interactive marker remains
 `[ZIGIX:TEST:PASS:tinysh_interactive]`, emitted after `tinysh` reads

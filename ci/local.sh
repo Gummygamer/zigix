@@ -169,7 +169,7 @@ run "smoke-parser-accepts-phase13" bash -c '
 run "smoke-parser-accepts-phase14" bash -c '
   tmp=$(mktemp)
   trap "rm -f $tmp" EXIT
-  printf "[ZIGIX:BOOT:START]\n[ZIGIX:TOOLCHAIN:bun-zig=0.15.2]\n[ZIGIX:BOOT:OK]\n[ZIGIX:TEST:PASS:syscall_dup2]\n[ZIGIX:TEST:PASS:syscall_chdir]\n[ZIGIX:TEST:PASS:syscall_getpid]\n[ZIGIX:TEST:PASS:syscall_getdents64]\n[ZIGIX:TEST:PASS:syscall_writable_memfs]\n[ZIGIX:INIT:START]\n[ZIGIX:INIT:OK]\n[ZIGIX:TEST:PASS:tinysh_smoke]\n[ZIGIX:TEST:PASS:tinysh_redirection]\n[ZIGIX:TEST:PASS:libc_shim_newlib]\n" > "$tmp"
+  printf "[ZIGIX:BOOT:START]\n[ZIGIX:TOOLCHAIN:bun-zig=0.15.2]\n[ZIGIX:BOOT:OK]\n[ZIGIX:TEST:PASS:syscall_dup2]\n[ZIGIX:TEST:PASS:syscall_chdir]\n[ZIGIX:TEST:PASS:syscall_getpid]\n[ZIGIX:TEST:PASS:syscall_getdents64]\n[ZIGIX:TEST:PASS:syscall_writable_memfs]\n[ZIGIX:INIT:START]\n[ZIGIX:INIT:OK]\n[ZIGIX:TEST:PASS:tinysh_smoke]\n[ZIGIX:TEST:PASS:tinysh_redirection]\n[ZIGIX:TEST:PASS:cat]\n[ZIGIX:TEST:PASS:libc_shim_newlib]\n" > "$tmp"
   tools/qemu/smoke_test.py "$tmp" --phase phase14
 '
 
