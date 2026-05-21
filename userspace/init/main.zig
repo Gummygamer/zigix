@@ -4,11 +4,15 @@ const libc = @import("zigix_newlib");
 const sys = @import("zigix_sys");
 
 export fn _start() callconv(.c) noreturn {
+    const mkdir_argv = [_]?[*:0]const u8{ "/tinysh", "-c", "mkdir shell-dir", null };
+    const cd_argv = [_]?[*:0]const u8{ "/tinysh", "-c", "cd shell-dir", null };
     const redir_argv = [_]?[*:0]const u8{ "/tinysh", "-c", "exec-ok > redir-out", null };
     const cat_argv = [_]?[*:0]const u8{ "/tinysh", "-c", "cat cat-input", null };
     const envp = [_]?[*:0]const u8{ "ZIGIX_PHASE=11", null };
 
     _ = sys.write(sys.STDOUT, "[ZIGIX:INIT:START]\n");
+    runProgram("/tinysh", @intFromPtr(&mkdir_argv), @intFromPtr(&envp), "tinysh_mkdir");
+    runProgram("/tinysh", @intFromPtr(&cd_argv), @intFromPtr(&envp), "tinysh_mkdir");
     runProgram("/tinysh", @intFromPtr(&redir_argv), @intFromPtr(&envp), "posix_spawn_user");
     writeCatInput();
     runProgram("/tinysh", @intFromPtr(&cat_argv), @intFromPtr(&envp), "cat");

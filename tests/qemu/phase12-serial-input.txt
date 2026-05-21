@@ -1,4 +1,7 @@
 cd /
+mkdir shdir
+cd shdir
+cd /
 cd f
 exec-ok
 exit

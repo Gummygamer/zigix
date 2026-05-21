@@ -104,6 +104,25 @@ fn runCommand(parsed: ParsedCommand, marker_name: []const u8) CommandAction {
         }
         return .continue_loop;
     }
+    if (eql(command, "mkdir")) {
+        if (parsed.hasRedirection()) fail(marker_name, "redir");
+        if (parsed.argc != 2) {
+            if (isInteractiveMarker(marker_name)) {
+                _ = sys.write(sys.STDOUT, "mkdir: usage: mkdir <path>\n");
+                return .continue_loop;
+            }
+            fail(marker_name, "mkdir");
+        }
+        const ret = sys.mkdir(parsed.argv[1].?, 0);
+        if (ret != 0) {
+            if (isInteractiveMarker(marker_name)) {
+                writeMkdirError(parsed.argv[1].?, ret);
+                return .continue_loop;
+            }
+            fail(marker_name, "mkdir");
+        }
+        return .continue_loop;
+    }
 
     var redirection = applyRedirections(parsed, marker_name);
     const pid = sys.posixSpawn(parsed.argv[0].?, @intFromPtr(parsed.argv), 0);
@@ -339,6 +358,24 @@ fn writeCdError(path: [*:0]const u8, ret: i64) void {
         _ = sys.write(sys.STDOUT, "not found");
     } else if (errno == @as(i64, sys.ENOTDIR)) {
         _ = sys.write(sys.STDOUT, "not a directory");
+    } else {
+        _ = sys.write(sys.STDOUT, "failed");
+    }
+    _ = sys.write(sys.STDOUT, "\n");
+}
+
+fn writeMkdirError(path: [*:0]const u8, ret: i64) void {
+    _ = sys.write(sys.STDOUT, "mkdir: ");
+    _ = sys.write(sys.STDOUT, cStringSlice(path));
+    _ = sys.write(sys.STDOUT, ": ");
+
+    const errno = -ret;
+    if (errno == @as(i64, sys.EEXIST)) {
+        _ = sys.write(sys.STDOUT, "already exists");
+    } else if (errno == @as(i64, sys.ENOENT)) {
+        _ = sys.write(sys.STDOUT, "parent not found");
+    } else if (errno == @as(i64, sys.ENOTDIR)) {
+        _ = sys.write(sys.STDOUT, "parent not a directory");
     } else {
         _ = sys.write(sys.STDOUT, "failed");
     }
