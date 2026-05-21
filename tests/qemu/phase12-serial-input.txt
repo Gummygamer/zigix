@@ -3,5 +3,8 @@ mkdir shdir
 cd shdir
 cd /
 cd f
+mkdir f
+cd f
+cd /
 exec-ok
 exit
