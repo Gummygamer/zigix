@@ -10,6 +10,7 @@ const DELETE: u8 = 0x7f;
 
 var command_buffer: [MAX_COMMAND_BYTES]u8 = [_]u8{0} ** MAX_COMMAND_BYTES;
 var line_buffer: [MAX_COMMAND_BYTES]u8 = [_]u8{0} ** MAX_COMMAND_BYTES;
+var exec_path_buffer: [MAX_COMMAND_BYTES]u8 = [_]u8{0} ** MAX_COMMAND_BYTES;
 var spawn_argv: [MAX_ARGS + 1]?[*:0]const u8 = [_]?[*:0]const u8{null} ** (MAX_ARGS + 1);
 
 export fn _start() callconv(.c) noreturn {
@@ -125,9 +126,13 @@ fn runCommand(parsed: ParsedCommand, marker_name: []const u8) CommandAction {
     }
 
     var redirection = applyRedirections(parsed, marker_name);
-    const pid = sys.posixSpawn(parsed.argv[0].?, @intFromPtr(parsed.argv), 0);
+    const pid = spawnCommand(parsed.argv[0].?, @intFromPtr(parsed.argv));
     if (pid <= 0) {
         _ = redirection.restore();
+        if (isInteractiveMarker(marker_name)) {
+            writeCommandError(parsed.argv[0].?, pid);
+            return .continue_loop;
+        }
         fail(marker_name, "spawn");
     }
 
@@ -138,6 +143,15 @@ fn runCommand(parsed: ParsedCommand, marker_name: []const u8) CommandAction {
     if (waited != pid) fail(marker_name, "wait");
     if (status != 0) fail(marker_name, "status");
     return .continue_loop;
+}
+
+fn spawnCommand(path: [*:0]const u8, argv: usize) i64 {
+    const pid = sys.posixSpawn(path, argv, 0);
+    if (pid > 0) return pid;
+    if (pid != -@as(i64, sys.ENOENT) or containsSlash(cStringSlice(path))) return pid;
+
+    const absolute_path = rootCommandPath(path) orelse return pid;
+    return sys.posixSpawn(absolute_path, argv, 0);
 }
 
 fn parseCommand(line: []const u8) ?ParsedCommand {
@@ -344,6 +358,23 @@ fn sliceEql(left: []const u8, right: []const u8) bool {
     return true;
 }
 
+fn containsSlash(slice: []const u8) bool {
+    for (slice) |byte| {
+        if (byte == '/') return true;
+    }
+    return false;
+}
+
+fn rootCommandPath(path: [*:0]const u8) ?[*:0]const u8 {
+    const command = cStringSlice(path);
+    if (command.len == 0 or command.len + 2 > exec_path_buffer.len) return null;
+
+    @memset(&exec_path_buffer, 0);
+    exec_path_buffer[0] = '/';
+    @memcpy(exec_path_buffer[1 .. 1 + command.len], command);
+    return @ptrCast(exec_path_buffer[0..].ptr);
+}
+
 fn isInteractiveMarker(marker_name: []const u8) bool {
     return sliceEql(marker_name, "tinysh_interactive");
 }
@@ -376,6 +407,21 @@ fn writeMkdirError(path: [*:0]const u8, ret: i64) void {
         _ = sys.write(sys.STDOUT, "parent not found");
     } else if (errno == @as(i64, sys.ENOTDIR)) {
         _ = sys.write(sys.STDOUT, "parent not a directory");
+    } else {
+        _ = sys.write(sys.STDOUT, "failed");
+    }
+    _ = sys.write(sys.STDOUT, "\n");
+}
+
+fn writeCommandError(path: [*:0]const u8, ret: i64) void {
+    _ = sys.write(sys.STDOUT, cStringSlice(path));
+    _ = sys.write(sys.STDOUT, ": ");
+
+    const errno = -ret;
+    if (errno == @as(i64, sys.ENOENT)) {
+        _ = sys.write(sys.STDOUT, "not found");
+    } else if (errno == @as(i64, sys.ENOTDIR)) {
+        _ = sys.write(sys.STDOUT, "not a directory");
     } else {
         _ = sys.write(sys.STDOUT, "failed");
     }
