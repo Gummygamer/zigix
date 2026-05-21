@@ -88,6 +88,29 @@ The build entry points are intentionally thin:
 QEMU smoke runs are headless and machine-readable. See
 [`docs/testing.md`](docs/testing.md) for the serial-log marker protocol.
 
+To run an interactive `/tinysh` session manually, first build the kernel and
+initramfs:
+
+```sh
+tools/toolchain/zig-bun build kernel
+```
+
+Then boot the interactive initramfs with COM1 attached to stdio:
+
+```sh
+qemu-system-x86_64 \
+  -no-reboot \
+  -m 128M \
+  -display none \
+  -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
+  -kernel zig-out/bin/zigix-kernel.mb \
+  -initrd zig-out/bin/initramfs-interactive.zixr \
+  -monitor none \
+  -serial stdio
+```
+
+The shell prompt is `zigix$ `. Type `exit` to leave the session.
+
 ## Layout
 
 See [`docs/architecture.md`](docs/architecture.md) for the directory layout
