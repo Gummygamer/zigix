@@ -8,6 +8,8 @@ export fn _start() callconv(.c) noreturn {
     const cd_argv = [_]?[*:0]const u8{ "/tinysh", "-c", "cd shell-dir", null };
     const redir_argv = [_]?[*:0]const u8{ "/tinysh", "-c", "exec-ok > redir-out", null };
     const cat_argv = [_]?[*:0]const u8{ "/tinysh", "-c", "cat cat-input", null };
+    const ls_mkdir_argv = [_]?[*:0]const u8{ "/tinysh", "-c", "mkdir ls-dir", null };
+    const ls_argv = [_]?[*:0]const u8{ "/tinysh", "-c", "ls ls-dir", null };
     const envp = [_]?[*:0]const u8{ "ZIGIX_PHASE=11", null };
 
     _ = sys.write(sys.STDOUT, "[ZIGIX:INIT:START]\n");
@@ -16,6 +18,9 @@ export fn _start() callconv(.c) noreturn {
     runProgram("/tinysh", @intFromPtr(&redir_argv), @intFromPtr(&envp), "posix_spawn_user");
     writeCatInput();
     runProgram("/tinysh", @intFromPtr(&cat_argv), @intFromPtr(&envp), "cat");
+    runProgram("/tinysh", @intFromPtr(&ls_mkdir_argv), @intFromPtr(&envp), "ls");
+    writeLsEntry();
+    runProgram("/tinysh", @intFromPtr(&ls_argv), @intFromPtr(&envp), "ls");
 
     const libc_marker = "[ZIGIX:TEST:PASS:libc_shim_newlib]\n";
     if (libc._write(1, libc_marker.ptr, libc_marker.len) != libc_marker.len) {
@@ -45,6 +50,20 @@ fn writeCatInput() void {
     }
     if (sys.close(@intCast(fd)) != 0) {
         _ = sys.write(sys.STDOUT, "[ZIGIX:TEST:FAIL:cat:close]\n");
+        sys._exit(1);
+    }
+}
+
+fn writeLsEntry() void {
+    // Name the entry after the marker so `ls ls-dir` echoes it as one line.
+    const entry = "ls-dir/[ZIGIX:TEST:PASS:ls]";
+    const fd = sys.open(entry, sys.O_WRONLY | sys.O_CREAT | sys.O_TRUNC, 0);
+    if (fd < 0) {
+        _ = sys.write(sys.STDOUT, "[ZIGIX:TEST:FAIL:ls:create]\n");
+        sys._exit(1);
+    }
+    if (sys.close(@intCast(fd)) != 0) {
+        _ = sys.write(sys.STDOUT, "[ZIGIX:TEST:FAIL:ls:close]\n");
         sys._exit(1);
     }
 }

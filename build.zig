@@ -403,6 +403,34 @@ pub fn build(b: *std.Build) void {
 
     const install_tinysh = b.addInstallArtifact(tinysh_exe, .{});
 
+    const ls_module = b.createModule(.{
+        .root_source_file = b.path("userspace/ls/main.zig"),
+        .target = kernel_target,
+        .optimize = optimize,
+        .code_model = .small,
+        .red_zone = false,
+        .pic = false,
+        .stack_protector = false,
+        .stack_check = false,
+        .single_threaded = true,
+        .strip = false,
+        .omit_frame_pointer = false,
+        .imports = &.{
+            .{ .name = "zigix_sys", .module = userspace_sys_module },
+        },
+    });
+
+    const ls_exe = b.addExecutable(.{
+        .name = "ls",
+        .root_module = ls_module,
+        .use_llvm = true,
+        .use_lld = true,
+    });
+    ls_exe.setLinkerScript(b.path("userspace/init/linker.ld"));
+    ls_exe.entry = .{ .symbol_name = "_start" };
+
+    const install_ls = b.addInstallArtifact(ls_exe, .{});
+
     const pack_initramfs = b.addSystemCommand(&.{ "python3", "tools/mkinitramfs/pack.py" });
     const initramfs_path = pack_initramfs.addOutputFileArg("initramfs.zixr");
     pack_initramfs.addArg("--entry");
@@ -417,6 +445,9 @@ pub fn build(b: *std.Build) void {
     pack_initramfs.addArg("--entry");
     pack_initramfs.addArg("tinysh");
     pack_initramfs.addFileArg(tinysh_exe.getEmittedBin());
+    pack_initramfs.addArg("--entry");
+    pack_initramfs.addArg("ls");
+    pack_initramfs.addFileArg(ls_exe.getEmittedBin());
     pack_initramfs.setName("mkinitramfs");
 
     const install_initramfs = b.addInstallFileWithDir(
@@ -439,6 +470,9 @@ pub fn build(b: *std.Build) void {
     pack_interactive_initramfs.addArg("--entry");
     pack_interactive_initramfs.addArg("tinysh");
     pack_interactive_initramfs.addFileArg(tinysh_exe.getEmittedBin());
+    pack_interactive_initramfs.addArg("--entry");
+    pack_interactive_initramfs.addArg("ls");
+    pack_interactive_initramfs.addFileArg(ls_exe.getEmittedBin());
     pack_interactive_initramfs.setName("mkinitramfs-interactive");
 
     const install_interactive_initramfs = b.addInstallFileWithDir(
@@ -458,6 +492,7 @@ pub fn build(b: *std.Build) void {
     kernel_step.dependOn(&install_exec_ok.step);
     kernel_step.dependOn(&install_cat.step);
     kernel_step.dependOn(&install_tinysh.step);
+    kernel_step.dependOn(&install_ls.step);
     kernel_step.dependOn(&install_initramfs.step);
     kernel_step.dependOn(&install_interactive_initramfs.step);
 

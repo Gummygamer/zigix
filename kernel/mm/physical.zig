@@ -82,6 +82,40 @@ pub fn allocPage() Error!usize {
     return error.OutOfMemory;
 }
 
+pub fn allocPages(count: usize) Error!usize {
+    if (!initialized or count == 0) return error.OutOfMemory;
+    if (count == 1) return allocPage();
+
+    // Linear scan for `count` consecutive free frames. The page table and
+    // kernel-stack allocations that need contiguous physical memory are few
+    // and small, so a simple scan is adequate.
+    var base: usize = 0;
+    while (base + count <= FRAME_COUNT) {
+        var span: usize = 0;
+        while (span < count and isFree(base + span)) : (span += 1) {}
+        if (span == count) {
+            var index: usize = 0;
+            while (index < count) : (index += 1) {
+                setUsed(base + index);
+                if (stats.tracked_free_pages > 0) stats.tracked_free_pages -= 1;
+            }
+            return base * PAGE_SIZE;
+        }
+        // The frame at `base + span` is used; resume past it.
+        base += span + 1;
+    }
+
+    return error.OutOfMemory;
+}
+
+pub fn freePages(addr: usize, count: usize) void {
+    if (count == 0) return;
+    var index: usize = 0;
+    while (index < count) : (index += 1) {
+        freePage(addr + index * PAGE_SIZE);
+    }
+}
+
 pub fn freePage(addr: usize) void {
     if (!initialized or addr % PAGE_SIZE != 0) return;
     const frame = addr / PAGE_SIZE;

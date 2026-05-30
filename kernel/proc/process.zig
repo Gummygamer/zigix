@@ -5,7 +5,7 @@ const mm = @import("mm");
 
 pub const MAX_PROCESSES: usize = 16;
 pub const MAX_PROCESS_REGIONS: usize = 16;
-pub const KERNEL_STACK_PAGES: usize = 1;
+pub const KERNEL_STACK_PAGES: usize = 4;
 
 pub const Pid = u32;
 
@@ -450,7 +450,7 @@ fn freeSlot() ?*Process {
 }
 
 fn allocateKernelStack() Error!KernelStack {
-    const base = mm.physical.allocPage() catch return error.OutOfMemory;
+    const base = mm.physical.allocPages(KERNEL_STACK_PAGES) catch return error.OutOfMemory;
     return .{
         .base = base,
         .page_count = KERNEL_STACK_PAGES,
@@ -460,10 +460,7 @@ fn allocateKernelStack() Error!KernelStack {
 
 fn releaseKernelStack(stack: KernelStack) void {
     if (!stack.owned) return;
-    var index: usize = 0;
-    while (index < stack.page_count) : (index += 1) {
-        mm.physical.freePage(stack.base + index * mm.physical.PAGE_SIZE);
-    }
+    mm.physical.freePages(stack.base, stack.page_count);
 }
 
 fn allocatePid() Pid {
