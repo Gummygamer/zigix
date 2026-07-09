@@ -10,6 +10,7 @@ const sys = @import("zigix_sys");
 pub export var errno: i32 = 0;
 
 pub const Stat = sys.Stat;
+pub const ENOSYS: i32 = abi.ENOSYS;
 
 pub export fn _read(fd: i32, buf: ?*anyopaque, len: usize) isize {
     const fd_arg = fdArg(fd) orelse return -1;
@@ -76,6 +77,19 @@ pub export fn _getpid() i32 {
 
 pub export fn _getppid() i32 {
     return @intCast(abi.syscallResult(sys.getppid(), &errno));
+}
+
+// Timekeeping has no userspace contract yet. Export the hooks newlib probes
+// for so a port gets a defined ENOSYS result rather than a link failure.
+pub export fn _gettimeofday(tv: ?*anyopaque, tz: ?*anyopaque) i32 {
+    _ = tv;
+    _ = tz;
+    return @intCast(abi.fail(sys.ENOSYS, &errno));
+}
+
+pub export fn _times(buf: ?*anyopaque) isize {
+    _ = buf;
+    return abi.fail(sys.ENOSYS, &errno);
 }
 
 pub export fn _kill(pid: i32, sig: i32) i32 {

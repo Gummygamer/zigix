@@ -27,8 +27,8 @@ rejected.
 | 11    | Tiny shell                           | done         | `[ZIGIX:TEST:PASS:tinysh_smoke]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 12    | Interactive console shell            | done         | `[ZIGIX:TEST:PASS:tinysh_interactive]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 13    | libc strategy                        | done         | `[ZIGIX:TEST:PASS:libc_shim_newlib]` |
-| 14    | Shell/POSIX usability                | in progress  | `[ZIGIX:TEST:PASS:syscall_dup2]`, `[ZIGIX:TEST:PASS:syscall_chdir]` |
-| 15    | Portability substrate                | pending      | per-phase markers TBD |
+| 14    | Shell/POSIX usability                | done         | Phase 14 QEMU smoke (`dup2`, `chdir`, `getpid`, `getdents64`, writable memfs, redirection, `cat`, `ls`) |
+| 15    | Portability substrate                | in progress  | `[ZIGIX:TEST:PASS:libc_shim_time_stubs]` |
 | 16    | BusyBox or Toybox port               | pending      | per-phase markers TBD |
 | 17    | GNU tools later                      | pending      | per-phase markers TBD |
 
@@ -476,8 +476,8 @@ surface needed by a visible shell/libc behavior.
       write/truncate on memfs files, with inode-backed file descriptor tests.
 - [x] Shell redirection: `cmd > file`, `cmd < file`, and descriptor setup for
       spawned children. This should depend on writable memfs and `dup2`.
-- [ ] Signals only after there is a caller: start with process-directed
-      `SIGTERM`/`SIGCHLD` semantics before terminal `SIGINT`.
+- Signals are deliberately deferred until a caller exists: start with
+  process-directed `SIGTERM`/`SIGCHLD` semantics before terminal `SIGINT`.
 
 Deferred from Phase 14 unless a concrete test forces them:
 
@@ -492,12 +492,15 @@ Phase 15 prepares the first third-party userspace build. It should close the
 small ABI gaps that cause configure/build probes to fail before attempting a
 BusyBox/Toybox tree.
 
-- Expand `userspace/libc_shim/` toward the syscall hooks newlib expects:
-  `_getpid`, `_gettimeofday` or a deliberate `ENOSYS`, `_times`, `_sbrk`
-  backed by a userspace heap contract, and directory hooks once `getdents64`
-  exists.
+- [x] First slice: deliberate `ENOSYS` hooks for `_gettimeofday` and `_times`
+  (with host ABI tests and QEMU marker `[ZIGIX:TEST:PASS:libc_shim_time_stubs]`)
+  rather than inventing time semantics before the timer has a userspace
+  contract. Record both in `docs/posix-compat.md`.
+- Then expand `userspace/libc_shim/` toward the remaining newlib hooks:
+  `_sbrk` backed by a userspace heap contract and directory hooks on top of
+  `getdents64`.
 - Add a small compatibility test program built through the libc shim, not just
-  direct Zig syscall wrappers.
+  direct Zig syscall wrappers, and give it its own Phase 15 QEMU marker.
 - Document unsupported-but-intentional POSIX behavior in `docs/posix-compat.md`
   as failures are found.
 
@@ -529,13 +532,12 @@ BusyBox/Toybox tree.
 
 The next thing to do, concretely:
 
-1. Source `.env`, then run `ci/local.sh` to confirm the Phase 14 smoke
-   and the Phase 12 scripted interactive smoke still pass from the current
-   checkout.
-2. Continue Phase 14 with `getpid`/`getppid` or `getdents64`; choose the one
-   with the clearest shell/libc smoke marker.
-3. Keep transparent blocking syscall resume on the deferred list unless the
-   newlib port or Phase 14 work exposes a concrete need for it.
+1. Source `.env`, then run `ci/local.sh` to confirm the completed Phase 14
+   smoke and the Phase 12 scripted interactive smoke still pass.
+2. Add the small Phase 15 compatibility test program through the libc shim,
+   then use its marker as the gate for the first third-party userspace build.
+3. Keep transparent blocking syscall resume and signals on the deferred list
+   unless the newlib port exposes a concrete need for either.
 
 Operational reminders for a fresh session:
 

@@ -31,6 +31,15 @@ export fn _start() callconv(.c) noreturn {
         _ = sys.write(sys.STDOUT, "[ZIGIX:TEST:FAIL:libc_shim_getpid:identity]\n");
         sys._exit(1);
     }
+    if (libc._gettimeofday(null, null) != -1 or libc.errno != sys.ENOSYS) {
+        _ = sys.write(sys.STDOUT, "[ZIGIX:TEST:FAIL:libc_shim_time_stubs:gettimeofday]\n");
+        sys._exit(1);
+    }
+    if (libc._times(null) != -1 or libc.errno != sys.ENOSYS) {
+        _ = sys.write(sys.STDOUT, "[ZIGIX:TEST:FAIL:libc_shim_time_stubs:times]\n");
+        sys._exit(1);
+    }
+    _ = sys.write(sys.STDOUT, "[ZIGIX:TEST:PASS:libc_shim_time_stubs]\n");
 
     sys._exit(0);
 }

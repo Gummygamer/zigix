@@ -105,6 +105,22 @@ PHASES: dict[str, list[str]] = {
         "[ZIGIX:INIT:START]",
         "[ZIGIX:INIT:OK]",
     ],
+    "phase15": [
+        "[ZIGIX:BOOT:OK]",
+        "[ZIGIX:TEST:PASS:syscall_dup2]",
+        "[ZIGIX:TEST:PASS:syscall_chdir]",
+        "[ZIGIX:TEST:PASS:syscall_getpid]",
+        "[ZIGIX:TEST:PASS:syscall_getdents64]",
+        "[ZIGIX:TEST:PASS:syscall_writable_memfs]",
+        "[ZIGIX:TEST:PASS:tinysh_smoke]",
+        "[ZIGIX:TEST:PASS:tinysh_redirection]",
+        "[ZIGIX:TEST:PASS:cat]",
+        "[ZIGIX:TEST:PASS:ls]",
+        "[ZIGIX:TEST:PASS:libc_shim_newlib]",
+        "[ZIGIX:TEST:PASS:libc_shim_time_stubs]",
+        "[ZIGIX:INIT:START]",
+        "[ZIGIX:INIT:OK]",
+    ],
 }
 
 
