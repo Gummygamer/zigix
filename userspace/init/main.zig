@@ -13,6 +13,7 @@ export fn _start() callconv(.c) noreturn {
     const envp = [_]?[*:0]const u8{ "ZIGIX_PHASE=11", null };
 
     _ = sys.write(sys.STDOUT, "[ZIGIX:INIT:START]\n");
+    runProgram("/libc-compat", 0, 0, "libc_shim_compat");
     runProgram("/tinysh", @intFromPtr(&mkdir_argv), @intFromPtr(&envp), "tinysh_mkdir");
     runProgram("/tinysh", @intFromPtr(&cd_argv), @intFromPtr(&envp), "tinysh_mkdir");
     runProgram("/tinysh", @intFromPtr(&redir_argv), @intFromPtr(&envp), "posix_spawn_user");

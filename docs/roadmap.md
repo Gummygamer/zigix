@@ -496,11 +496,14 @@ BusyBox/Toybox tree.
   (with host ABI tests and QEMU marker `[ZIGIX:TEST:PASS:libc_shim_time_stubs]`)
   rather than inventing time semantics before the timer has a userspace
   contract. Record both in `docs/posix-compat.md`.
-- Then expand `userspace/libc_shim/` toward the remaining newlib hooks:
-  `_sbrk` backed by a userspace heap contract and directory hooks on top of
+- [ ] Expand `userspace/libc_shim/` toward the remaining newlib hooks only
+  when the first third-party build requires them: `_sbrk` needs a userspace
+  heap contract, and directory hooks need to be designed on top of
   `getdents64`.
-- Add a small compatibility test program built through the libc shim, not just
-  direct Zig syscall wrappers, and give it its own Phase 15 QEMU marker.
+- [x] Add `/libc-compat`, a small compatibility test program built through
+  the libc shim rather than raw Zig syscall wrappers. It exercises process
+  identity, tty detection, cwd changes, file create/write/seek/read/stat, and
+  emits `[ZIGIX:TEST:PASS:libc_shim_compat]` from the spawned process.
 - Document unsupported-but-intentional POSIX behavior in `docs/posix-compat.md`
   as failures are found.
 
@@ -534,8 +537,9 @@ The next thing to do, concretely:
 
 1. Source `.env`, then run `ci/local.sh` to confirm the completed Phase 14
    smoke and the Phase 12 scripted interactive smoke still pass.
-2. Add the small Phase 15 compatibility test program through the libc shim,
-   then use its marker as the gate for the first third-party userspace build.
+2. Use the `libc_shim_compat` marker as the gate for the first narrow
+   third-party userspace build; add directory or heap hooks only when that
+   build identifies a concrete required ABI hook.
 3. Keep transparent blocking syscall resume and signals on the deferred list
    unless the newlib port exposes a concrete need for either.
 

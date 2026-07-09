@@ -291,6 +291,34 @@ pub fn build(b: *std.Build) void {
 
     const install_init = b.addInstallArtifact(init_exe, .{});
 
+    const libc_compat_module = b.createModule(.{
+        .root_source_file = b.path("userspace/libc-compat/main.zig"),
+        .target = kernel_target,
+        .optimize = optimize,
+        .code_model = .small,
+        .red_zone = false,
+        .pic = false,
+        .stack_protector = false,
+        .stack_check = false,
+        .single_threaded = true,
+        .strip = false,
+        .omit_frame_pointer = false,
+        .imports = &.{
+            .{ .name = "zigix_newlib", .module = libc_shim_newlib_module },
+        },
+    });
+
+    const libc_compat_exe = b.addExecutable(.{
+        .name = "libc-compat",
+        .root_module = libc_compat_module,
+        .use_llvm = true,
+        .use_lld = true,
+    });
+    libc_compat_exe.setLinkerScript(b.path("userspace/init/linker.ld"));
+    libc_compat_exe.entry = .{ .symbol_name = "_start" };
+
+    const install_libc_compat = b.addInstallArtifact(libc_compat_exe, .{});
+
     const init_interactive_module = b.createModule(.{
         .root_source_file = b.path("userspace/init-interactive/main.zig"),
         .target = kernel_target,
@@ -437,6 +465,9 @@ pub fn build(b: *std.Build) void {
     pack_initramfs.addArg("init");
     pack_initramfs.addFileArg(init_exe.getEmittedBin());
     pack_initramfs.addArg("--entry");
+    pack_initramfs.addArg("libc-compat");
+    pack_initramfs.addFileArg(libc_compat_exe.getEmittedBin());
+    pack_initramfs.addArg("--entry");
     pack_initramfs.addArg("exec-ok");
     pack_initramfs.addFileArg(exec_ok_exe.getEmittedBin());
     pack_initramfs.addArg("--entry");
@@ -461,6 +492,9 @@ pub fn build(b: *std.Build) void {
     pack_interactive_initramfs.addArg("--entry");
     pack_interactive_initramfs.addArg("init");
     pack_interactive_initramfs.addFileArg(init_interactive_exe.getEmittedBin());
+    pack_interactive_initramfs.addArg("--entry");
+    pack_interactive_initramfs.addArg("libc-compat");
+    pack_interactive_initramfs.addFileArg(libc_compat_exe.getEmittedBin());
     pack_interactive_initramfs.addArg("--entry");
     pack_interactive_initramfs.addArg("exec-ok");
     pack_interactive_initramfs.addFileArg(exec_ok_exe.getEmittedBin());
@@ -488,6 +522,7 @@ pub fn build(b: *std.Build) void {
     kernel_step.dependOn(&install_kernel.step);
     kernel_step.dependOn(&install_kernel32.step);
     kernel_step.dependOn(&install_init.step);
+    kernel_step.dependOn(&install_libc_compat.step);
     kernel_step.dependOn(&install_init_interactive.step);
     kernel_step.dependOn(&install_exec_ok.step);
     kernel_step.dependOn(&install_cat.step);

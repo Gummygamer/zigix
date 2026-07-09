@@ -118,6 +118,7 @@ PHASES: dict[str, list[str]] = {
         "[ZIGIX:TEST:PASS:ls]",
         "[ZIGIX:TEST:PASS:libc_shim_newlib]",
         "[ZIGIX:TEST:PASS:libc_shim_time_stubs]",
+        "[ZIGIX:TEST:PASS:libc_shim_compat]",
         "[ZIGIX:INIT:START]",
         "[ZIGIX:INIT:OK]",
     ],

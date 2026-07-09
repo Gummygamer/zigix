@@ -20,7 +20,7 @@ OS with:
 
 ## Status
 
-Phase 14 has started: Zigix boots under QEMU, initializes memory management
+Phases 0–14 are complete and Phase 15 is in progress: Zigix boots under QEMU, initializes memory management
 and interrupts, mounts a Multiboot-loaded initramfs on a small VFS/memfs root,
 installs syscall ABI v0, validates a static ELF64 load plan, maps and enters a
 freestanding ring-3 `/init`, runs `/tinysh -c /exec-ok` for the Phase 11
@@ -46,6 +46,11 @@ The Phase 13 marker remains
 `cd /`, runs relative `exec-ok` from serial stdin, starts it with
 `posix_spawn`, waits for it with `waitpid`, reads `exit`, and terminates
 cleanly.
+
+Phase 15 is in progress. Its `/libc-compat` child is built exclusively against
+the newlib-style hooks and verifies identity, tty, cwd, and file I/O behavior
+before emitting `[ZIGIX:TEST:PASS:libc_shim_compat]`; this is the gate for the
+first narrow third-party userspace build.
 
 The kernel has per-process descriptor tables, `dup`, close-on-exec metadata,
 basic pipe read/write coverage, process-table/PID lifecycle coverage,
