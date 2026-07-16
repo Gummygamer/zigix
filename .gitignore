@@ -4,6 +4,9 @@
 .zig-cache/
 zig-cache/
 zig-out/
+ports/*/src/
+ports/*/build/
+ports/*/sysroot/
 *.o
 *.elf
 *.bin

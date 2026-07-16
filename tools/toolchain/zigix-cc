@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# C compiler driver for freestanding x86_64 Zigix userspace and port builds.
+
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+export ZIGIX_LOG_TOOLCHAIN=0
+exec "$script_dir/zig-bun" cc \
+  --target=x86_64-freestanding-none \
+  -mno-red-zone \
+  "$@"

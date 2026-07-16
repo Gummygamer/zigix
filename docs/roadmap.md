@@ -514,6 +514,12 @@ BusyBox/Toybox tree.
   the libc shim rather than raw Zig syscall wrappers. It exercises process
   identity, tty detection, cwd changes, file create/write/seek/read/stat, and
   emits `[ZIGIX:TEST:PASS:libc_shim_compat]` from the spawned process.
+- [x] Pin Toybox and newlib revisions, reduce the first Toybox target to the
+  `echo` applet, and reproduce its first compile blocker. Add a Bun-Zig newlib
+  build that produces `regex.h` and `libc.a`; marker:
+  `[ZIGIX:TEST:PASS:newlib_archive]`.
+- [ ] Link and boot a C program against the generated newlib archive. The next
+  recorded Toybox portability gap is its Linux `byteswap.h` assumption.
 - Document unsupported-but-intentional POSIX behavior in `docs/posix-compat.md`
   as failures are found.
 
@@ -678,8 +684,9 @@ The next thing to do, concretely:
 
 1. Source `.env`, then run `ci/local.sh` to confirm the Phase 15 smoke and the
    Phase 12 scripted interactive smoke still pass.
-2. Pin Toybox and attempt one minimal static applet build. Treat its first
-   compile/link failure as the specification for the next Phase 15 ABI slice.
+2. Build and boot a minimal C program against the pinned newlib archive, then
+   carry a narrow Toybox portability patch for `byteswap.h` and continue the
+   single-`echo` build to its next concrete failure.
 3. Keep the dependency order explicit: third-party C userspace → VM/process
    ABI → threads/waits → storage/devices/network → hosted dynamic runtime →
    window/graphics/GTK → Firefox. Do not pull late GUI plumbing forward

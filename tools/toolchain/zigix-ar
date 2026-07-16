@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+export ZIGIX_LOG_TOOLCHAIN=0
+exec "$script_dir/zig-bun" ar "$@"

@@ -29,6 +29,8 @@ Update this file whenever syscall or POSIX semantics change.
 | shell redirection | partial | `tinysh` supports one `< file` and one `> file` per foreground external command | `tinysh_redirection` |
 | `cat` utility | partial | initramfs userspace command that copies one or more regular files to stdout | `cat` |
 | newlib syscall hooks | partial | `_read`, `_write`, `_open`, `_close`, `_dup2`, `_chdir`, `_lseek`, `_fstat`, `_stat`, `_isatty`, `_getpid`, `_getppid`, `_gettimeofday`, `_times`, `_kill`, `_sbrk`, `_exit`; `_gettimeofday`, `_times`, `_sbrk`, and `_kill` deliberately return an error until their kernel contracts exist | `libc_shim_newlib`, `libc_shim_time_stubs`, `libc_shim_compat`, host `libc_shim`, `syscall_dup2`, `syscall_getpid` |
+| newlib headers/archive | partial | pinned newlib builds with Bun Zig for `x86_64-elf`; startup objects and a QEMU-linked C program are next | `newlib_archive`, `port_source_locks` |
+| Toybox source build | missing | pinned `echo` probe now reaches newlib headers; next blocker is a Zigix portability replacement for Linux `byteswap.h` | `port_source_locks` |
 | `fork`   | missing | deferred; prefer `posix_spawn` until per-process address spaces exist | none  |
 | `mmap`   | missing | future portability/user-memory work         | none  |
 | signals  | missing | deferred until a concrete caller exists     | none  |

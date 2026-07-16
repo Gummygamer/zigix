@@ -37,6 +37,7 @@ run "wrapper-exists" test -x tools/toolchain/zig-bun
 run "check-script-exists" test -x tools/toolchain/check-bun-zig.sh
 run "qemu-runner-exists" test -x tools/qemu/run.sh
 run "smoke-parser-exists" test -x tools/qemu/smoke_test.py
+run "port-source-locks" tools/ports/check-locks.sh
 
 # 2. The check script must FAIL when ZIGIX_BUN_ZIG is unset. This is a
 #    negative test that proves the project does not silently fall back to

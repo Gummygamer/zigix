@@ -1,0 +1,2 @@
+# First Zigix Toybox target: one externally sourced applet.
+CONFIG_ECHO=y
