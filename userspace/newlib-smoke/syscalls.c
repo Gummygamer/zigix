@@ -96,6 +96,22 @@ int getpid(void) {
   return _getpid();
 }
 
+uid_t getuid(void) {
+  return (uid_t)result(syscall0(102));
+}
+
+gid_t getgid(void) {
+  return (gid_t)result(syscall0(104));
+}
+
+uid_t geteuid(void) {
+  return (uid_t)result(syscall0(107));
+}
+
+gid_t getegid(void) {
+  return (gid_t)result(syscall0(108));
+}
+
 int _kill(int pid, int signal) {
   (void)pid;
   (void)signal;

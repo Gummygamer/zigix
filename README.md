@@ -72,6 +72,10 @@ newlib-to-Zigix translation for create, truncate, and close-on-exec open flags.
 Pinned upstream Toybox `nproc` now consumes those streams: its deterministic
 sysfs fallback counts two CPU entries, and the boot harness validates its exact
 output before emitting `[ZIGIX:TEST:PASS:toybox_nproc]`.
+Zigix also exposes real/effective UID and GID calls under a documented
+single-user-root policy. Unchanged upstream Toybox `id.c` consumes that ABI;
+the harness checks numeric `id -u` output before emitting
+`[ZIGIX:TEST:PASS:toybox_id]`.
 
 The roadmap now continues beyond command-line userspace through virtual
 memory, pthreads, persistent storage, interactive devices, networking, a

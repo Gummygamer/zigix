@@ -356,6 +356,7 @@ pub fn invoke(num: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64, a
         numbers.dup => sysDup(arg0),
         numbers.dup2 => sysDup2(arg0, arg1),
         numbers.getpid => sysGetpid(),
+        numbers.getuid, numbers.getgid, numbers.geteuid, numbers.getegid => 0,
         numbers.execve => sysExecve(arg0, arg1, arg2),
         numbers.exit => sysExit(arg0),
         numbers.wait4 => sysWait4(arg0, arg1, arg2, arg3),

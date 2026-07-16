@@ -69,6 +69,10 @@ The syscall layer uses Linux errno numbers for the exposed set:
 | 82 | `rename` | `int rename(const char *oldpath, const char *newpath)` |
 | 83 | `mkdir` | `int mkdir(const char *path, mode_t mode)` |
 | 87 | `unlink` | `int unlink(const char *path)` |
+| 102 | `getuid` | `uid_t getuid(void)` |
+| 104 | `getgid` | `gid_t getgid(void)` |
+| 107 | `geteuid` | `uid_t geteuid(void)` |
+| 108 | `getegid` | `gid_t getegid(void)` |
 | 110 | `getppid` | `pid_t getppid(void)` |
 | 217 | `getdents64` | `int getdents64(int fd, void *dirp, unsigned int count)` |
 | 231 | `exit_group` | `void exit_group(int status)` |
@@ -110,8 +114,10 @@ Errors: `EBADF`.
 
 ### `lseek`
 
-Supports `SEEK_SET = 0`, `SEEK_CUR = 1`, and `SEEK_END = 2` on VFS-backed
-descriptors. Negative resulting offsets fail.
+Supports `SEEK_SET = 0`, `SEEK_CUR = 1`, and `SEEK_END = 2` on VFS-backed file
+descriptors. Directory descriptors support `SEEK_SET` and `SEEK_CUR` over
+their VFS cookie, including rewind to zero; `SEEK_END` is undefined for the
+current directory model and fails. Negative resulting offsets fail.
 
 Errors: `EBADF`, `EINVAL`.
 
@@ -163,6 +169,14 @@ Errors: `EBADF`, `EFAULT`, `EFBIG`, `EISDIR`, VFS-mapped errors.
 
 Returns the caller's process ID or its parent's process ID. The bootstrap
 process has no parent, so `getppid` returns `0` for PID 1.
+
+Errors: none.
+
+### `getuid` / `geteuid` / `getgid` / `getegid`
+
+Returns `0` under Zigix's current explicit single-user-root credential policy.
+Per-process credentials, permission checks, and credential-changing syscalls
+remain future work; these calls are not a claim that multi-user security exists.
 
 Errors: none.
 

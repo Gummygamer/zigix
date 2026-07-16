@@ -70,6 +70,11 @@ pub const TEST_syscall_getpid = testing.Test{
     .run = syscallGetpid,
 };
 
+pub const TEST_syscall_credentials = testing.Test{
+    .name = "syscall_credentials",
+    .run = syscallCredentials,
+};
+
 pub const TEST_syscall_getdents64 = testing.Test{
     .name = "syscall_getdents64",
     .run = syscallGetdents64,
@@ -438,6 +443,16 @@ fn syscallGetpid() testing.TestError!void {
         return error.SyscallGetpidChildReapFailed;
     }
     child_reaped = true;
+}
+
+fn syscallCredentials() testing.TestError!void {
+    if (syscall.dispatch.invoke(syscall.numbers.getuid, 0, 0, 0, 0, 0, 0) != 0 or
+        syscall.dispatch.invoke(syscall.numbers.geteuid, 0, 0, 0, 0, 0, 0) != 0 or
+        syscall.dispatch.invoke(syscall.numbers.getgid, 0, 0, 0, 0, 0, 0) != 0 or
+        syscall.dispatch.invoke(syscall.numbers.getegid, 0, 0, 0, 0, 0, 0) != 0)
+    {
+        return error.SyscallCredentialsNotRoot;
+    }
 }
 
 fn syscallGetdents64() testing.TestError!void {

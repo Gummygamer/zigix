@@ -12,13 +12,17 @@
 #include <unistd.h>
 #include <wchar.h>
 
-#if defined(FOR_taskset)
+#if defined(FOR_taskset) || defined(FOR_id)
 #include <ctype.h>
-#include <dirent.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
+#endif
+
+#if defined(FOR_taskset)
+#include <dirent.h>
 #define __NR_sched_setaffinity 203
 #define __NR_sched_getaffinity 204
 #endif
@@ -31,7 +35,19 @@ struct zigix_toy_context {
 
 extern struct zigix_toy_context toys;
 
-#if defined(FOR_taskset)
+#if defined(FOR_id)
+#define FLAG_n (1ULL << 0)
+#define FLAG_G (1ULL << 1)
+#define FLAG_g (1ULL << 2)
+#define FLAG_r (1ULL << 3)
+#define FLAG_u (1ULL << 4)
+#define FLAG_Z (1ULL << 5)
+#define CFG_TOYBOX_LSM_NONE 1
+#define CFG_TOYBOX_FREE 0
+struct zigix_id_globals { int is_groups; };
+extern struct zigix_id_globals TT;
+#define GLOBALS(...)
+#elif defined(FOR_taskset)
 #define FLAG_p (1ULL << 0)
 #define FLAG_a (1ULL << 1)
 #define FLAG_c (1ULL << 2)
@@ -70,6 +86,22 @@ void error_exit(char *format, ...);
 void xexec(char **argv);
 struct dirtree *dirtree_read(char *path, int (*callback)(struct dirtree *));
 int smemcmp(char *one, char *two, unsigned long length);
+#endif
+
+#if defined(FOR_id)
+#include <grp.h>
+#include <pwd.h>
+void xexit(void) __attribute__((noreturn));
+struct passwd *xgetpwuid(uid_t uid);
+struct passwd *bufgetpwuid(uid_t uid);
+struct group *xgetgrgid(gid_t gid);
+long atolx_range(char *text, long low, long high);
+void error_exit(char *format, ...);
+void perror_exit(char *format, ...);
+int getgrouplist(const char *user, gid_t group, gid_t *groups, int *count);
+int lsm_enabled(void);
+char *lsm_context(void);
+char *lsm_name(void);
 #endif
 
 #endif
