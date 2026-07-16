@@ -141,6 +141,7 @@ PHASES: dict[str, list[str]] = {
         "[ZIGIX:INIT:START]",
         "[ZIGIX:TEST:PASS:toybox]",
         "[ZIGIX:TEST:PASS:toybox_cat]",
+        "[ZIGIX:TEST:PASS:toybox_nproc]",
         "[ZIGIX:INIT:OK]",
     ],
 }

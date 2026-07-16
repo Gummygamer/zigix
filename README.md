@@ -69,6 +69,9 @@ definition and supplies `opendir`, `fdopendir`, `readdir`, `closedir`,
 `rewinddir`, and `dirfd` over `getdents64`. The booted
 `[ZIGIX:TEST:PASS:newlib_dirent]` probe also verifies directory rewind and the
 newlib-to-Zigix translation for create, truncate, and close-on-exec open flags.
+Pinned upstream Toybox `nproc` now consumes those streams: its deterministic
+sysfs fallback counts two CPU entries, and the boot harness validates its exact
+output before emitting `[ZIGIX:TEST:PASS:toybox_nproc]`.
 
 The roadmap now continues beyond command-line userspace through virtual
 memory, pthreads, persistent storage, interactive devices, networking, a

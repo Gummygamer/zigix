@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compile upstream Toybox echo.c and cat.c with the newlib bootstrap and boot them.
+# Compile upstream Toybox echo.c, cat.c, and nproc with the newlib bootstrap.
 
 set -euo pipefail
 
@@ -63,6 +63,18 @@ tools/toolchain/zigix-cc "${common[@]}" \
   -o "$out/toybox-cat"
 
 tools/toolchain/zigix-cc "${common[@]}" \
+  -D__ZIGIX__ \
+  -I ports/toybox \
+  -isystem "$include_dir" \
+  ports/toybox/start.S \
+  ports/toybox/runtime-nproc.c \
+  "$toybox_source/toys/other/taskset.c" \
+  ports/newlib/dirent.c \
+  userspace/newlib-smoke/syscalls.c \
+  "$libc" \
+  -o "$out/toybox-nproc"
+
+tools/toolchain/zigix-cc "${common[@]}" \
   ports/toybox/init.c \
   -o "$out/init"
 
@@ -75,7 +87,10 @@ python3 tools/mkinitramfs/pack.py "$out/initramfs.zixr" \
   --entry ls zig-out/bin/ls \
   --entry toybox-echo "$out/toybox-echo" \
   --entry toybox-cat "$out/toybox-cat" \
-  --entry toybox-cat-input ports/toybox/cat-marker.txt
+  --entry toybox-nproc "$out/toybox-nproc" \
+  --entry toybox-cat-input ports/toybox/cat-marker.txt \
+  --entry sys/devices/system/cpu/cpu0 ports/toybox/cat-marker.txt \
+  --entry sys/devices/system/cpu/cpu1 ports/toybox/cat-marker.txt
 
 tools/qemu/run.sh \
   zig-out/bin/zigix-kernel.mb \

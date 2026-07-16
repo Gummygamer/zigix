@@ -92,6 +92,10 @@ int _getpid(void) {
   return (int)result(syscall0(39));
 }
 
+int getpid(void) {
+  return _getpid();
+}
+
 int _kill(int pid, int signal) {
   (void)pid;
   (void)signal;

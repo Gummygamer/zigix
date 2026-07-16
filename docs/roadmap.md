@@ -29,7 +29,7 @@ rejected.
 | 13    | libc strategy                        | done         | `[ZIGIX:TEST:PASS:libc_shim_newlib]` |
 | 14    | Shell/POSIX usability                | done         | Phase 14 QEMU smoke (`dup2`, `chdir`, `getpid`, `getdents64`, writable memfs, redirection, `cat`, `ls`) |
 | 15    | Portability substrate                | done         | `[ZIGIX:TEST:PASS:newlib_c_runtime]` |
-| 16    | First third-party C userspace        | in progress  | `toybox` + `toybox_cat` + `newlib_dirent` |
+| 16    | First third-party C userspace        | in progress  | `toybox` + `toybox_cat` + `newlib_dirent` + `toybox_nproc` |
 | 17    | Virtual memory and process ABI       | pending      | `[ZIGIX:TEST:PASS:posix_vm]` |
 | 18    | Threads, preemption, and IPC waits   | pending      | `[ZIGIX:TEST:PASS:pthreads]` |
 | 19    | Persistent filesystem                | pending      | `[ZIGIX:TEST:PASS:persistent_fs]` |
@@ -557,6 +557,13 @@ userland a prerequisite for graphics or Firefox.
       emits `[ZIGIX:TEST:PASS:newlib_dirent]`. The same probe locks down
       translation of newlib's `O_CREAT`, `O_TRUNC`, and `O_CLOEXEC` values to
       the Zigix syscall ABI.
+- [x] Compile pinned upstream `toys/other/taskset.c` unchanged for its `nproc`
+      applet. With affinity deliberately unavailable, `nproc --all` traverses
+      a deterministic two-entry `/sys/devices/system/cpu` fixture through the
+      new directory streams. The init harness captures stdout and emits
+      `[ZIGIX:TEST:PASS:toybox_nproc]` only after verifying the exact upstream
+      output `2\n`. This avoids prematurely porting Toybox's recursive
+      `dirtree` support solely to prove the libc boundary.
 - [ ] Replace the bootstrap header overlay incrementally while adding file,
   directory, process, and shell applets. File applets and the directory-stream
   libc boundary are now live; the next slice should compile the narrowest
@@ -711,9 +718,10 @@ The next thing to do, concretely:
 1. Source `.env`, then run `ci/local.sh` to confirm the completed Phase 15
    substrate, Phase 16 directory streams, and the Phase 12 scripted interactive
    smoke still pass.
-2. Target one upstream Toybox directory applet on the new `DIR` stream layer
-   without regressing the `echo`, `cat`, and `newlib_dirent` markers. Keep the
-   bootstrap overlay narrow and record each concrete support-library blocker.
+2. Broaden the Toybox bootstrap above the now-proven file and directory
+   boundaries. Prefer the smallest process-oriented applet that exposes a real
+   ABI gap; keep `echo`, `cat`, `nproc`, and `newlib_dirent` green while
+   recording each concrete support-library blocker.
 3. Keep the dependency order explicit: third-party C userspace → VM/process
    ABI → threads/waits → storage/devices/network → hosted dynamic runtime →
    window/graphics/GTK → Firefox. Do not pull late GUI plumbing forward
