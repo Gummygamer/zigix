@@ -50,7 +50,7 @@ The Phase 13 marker remains
 `posix_spawn`, waits for it with `waitpid`, reads `exit`, and terminates
 cleanly.
 
-Phase 15 is in progress. Its `/libc-compat` child is built exclusively against
+Phase 15 is complete. Its `/libc-compat` child is built exclusively against
 the newlib-style hooks and verifies identity, tty, cwd, and file I/O behavior
 before emitting `[ZIGIX:TEST:PASS:libc_shim_compat]`; this is the gate for the
 first narrow third-party userspace build.
@@ -58,11 +58,12 @@ Pinned newlib sources now build into headers plus `libc.a` with Bun Zig, and a
 separate QEMU smoke links a C program from that archive and verifies newlib
 allocation, formatting, string, and write paths with
 `[ZIGIX:TEST:PASS:newlib_c_runtime]`.
-The first pinned Toybox slice compiles upstream `echo.c` unchanged against a
-narrow bootstrap header overlay and boots it with real argv in QEMU; the
-applet itself emits `[ZIGIX:TEST:PASS:toybox]`. Zigix also enables the x86_64
-SSE/SSE2 userspace baseline required by newlib stdio, while per-thread SIMD
-state ownership remains scheduled for the threading phase.
+The first pinned Toybox slices compile upstream `echo.c` and `cat.c` unchanged
+against narrow bootstrap support and boot them as separate ELF processes with
+real argv in QEMU. The applets emit `[ZIGIX:TEST:PASS:toybox]` and copy a file
+containing `[ZIGIX:TEST:PASS:toybox_cat]`, respectively. Zigix also enables the
+x86_64 SSE/SSE2 userspace baseline required by newlib stdio, while per-thread
+SIMD state ownership remains scheduled for the threading phase.
 
 The roadmap now continues beyond command-line userspace through virtual
 memory, pthreads, persistent storage, interactive devices, networking, a

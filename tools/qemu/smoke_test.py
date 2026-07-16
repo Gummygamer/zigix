@@ -133,6 +133,7 @@ PHASES: dict[str, list[str]] = {
         "[ZIGIX:TEST:PASS:cpu_sse]",
         "[ZIGIX:INIT:START]",
         "[ZIGIX:TEST:PASS:toybox]",
+        "[ZIGIX:TEST:PASS:toybox_cat]",
         "[ZIGIX:INIT:OK]",
     ],
 }

@@ -448,33 +448,44 @@ fn syscallGetdents64() testing.TestError!void {
     if (root_fd < 3) return error.SyscallGetdentsOpenRootFailed;
 
     var buf: [256]u8 = undefined;
-    const bytes = syscall.dispatch.invoke(syscall.numbers.getdents64, @intCast(root_fd), @intFromPtr(&buf), buf.len, 0, 0, 0);
-    if (bytes <= 0) return error.SyscallGetdentsReadFailed;
-
     var seen_init = false;
     var seen_exec_ok = false;
     var seen_tinysh = false;
-    var offset: usize = 0;
-    while (offset < @as(usize, @intCast(bytes))) {
-        if (offset + 19 > @as(usize, @intCast(bytes))) return error.SyscallGetdentsShortRecord;
-        const reclen = readLeU16(buf[offset + 16 .. offset + 18]);
-        if (reclen < 20 or offset + reclen > @as(usize, @intCast(bytes))) return error.SyscallGetdentsBadRecordLen;
-        if (readLeI64(buf[offset + 8 .. offset + 16]) <= 0) return error.SyscallGetdentsBadOffset;
+    var saw_records = false;
+    var reads: usize = 0;
+    while (true) {
+        reads += 1;
+        if (reads > 64) return error.SyscallGetdentsDidNotReachEof;
 
-        const entry_type = buf[offset + 18];
-        const name = direntName(buf[offset + 19 .. offset + reclen]) orelse return error.SyscallGetdentsMissingNull;
-        if (std.mem.eql(u8, name, "init")) {
-            seen_init = true;
-            if (entry_type != 8) return error.SyscallGetdentsWrongType;
-        } else if (std.mem.eql(u8, name, "exec-ok")) {
-            seen_exec_ok = true;
-            if (entry_type != 8) return error.SyscallGetdentsWrongType;
-        } else if (std.mem.eql(u8, name, "tinysh")) {
-            seen_tinysh = true;
-            if (entry_type != 8) return error.SyscallGetdentsWrongType;
+        const bytes = syscall.dispatch.invoke(syscall.numbers.getdents64, @intCast(root_fd), @intFromPtr(&buf), buf.len, 0, 0, 0);
+        if (bytes < 0) return error.SyscallGetdentsReadFailed;
+        if (bytes == 0) break;
+        saw_records = true;
+
+        const byte_count: usize = @intCast(bytes);
+        var offset: usize = 0;
+        while (offset < byte_count) {
+            if (offset + 19 > byte_count) return error.SyscallGetdentsShortRecord;
+            const reclen = readLeU16(buf[offset + 16 .. offset + 18]);
+            if (reclen < 20 or offset + reclen > byte_count) return error.SyscallGetdentsBadRecordLen;
+            if (readLeI64(buf[offset + 8 .. offset + 16]) <= 0) return error.SyscallGetdentsBadOffset;
+
+            const entry_type = buf[offset + 18];
+            const name = direntName(buf[offset + 19 .. offset + reclen]) orelse return error.SyscallGetdentsMissingNull;
+            if (std.mem.eql(u8, name, "init")) {
+                seen_init = true;
+                if (entry_type != 8) return error.SyscallGetdentsWrongType;
+            } else if (std.mem.eql(u8, name, "exec-ok")) {
+                seen_exec_ok = true;
+                if (entry_type != 8) return error.SyscallGetdentsWrongType;
+            } else if (std.mem.eql(u8, name, "tinysh")) {
+                seen_tinysh = true;
+                if (entry_type != 8) return error.SyscallGetdentsWrongType;
+            }
+            offset += reclen;
         }
-        offset += reclen;
     }
+    if (!saw_records) return error.SyscallGetdentsReadFailed;
     if (!seen_init or !seen_exec_ok or !seen_tinysh) return error.SyscallGetdentsMissingInitramfsEntry;
 
     if (syscall.dispatch.invoke(syscall.numbers.getdents64, @intCast(root_fd), @intFromPtr(&buf), buf.len, 0, 0, 0) != 0) {

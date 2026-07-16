@@ -29,7 +29,7 @@ rejected.
 | 13    | libc strategy                        | done         | `[ZIGIX:TEST:PASS:libc_shim_newlib]` |
 | 14    | Shell/POSIX usability                | done         | Phase 14 QEMU smoke (`dup2`, `chdir`, `getpid`, `getdents64`, writable memfs, redirection, `cat`, `ls`) |
 | 15    | Portability substrate                | done         | `[ZIGIX:TEST:PASS:newlib_c_runtime]` |
-| 16    | First third-party C userspace        | in progress  | `[ZIGIX:TEST:PASS:toybox]` |
+| 16    | First third-party C userspace        | in progress  | `toybox` + `toybox_cat` |
 | 17    | Virtual memory and process ABI       | pending      | `[ZIGIX:TEST:PASS:posix_vm]` |
 | 18    | Threads, preemption, and IPC waits   | pending      | `[ZIGIX:TEST:PASS:pthreads]` |
 | 19    | Persistent filesystem                | pending      | `[ZIGIX:TEST:PASS:persistent_fs]` |
@@ -546,10 +546,14 @@ userland a prerequisite for graphics or Firefox.
   ELF stack loader.
 - [x] Add a QEMU smoke that runs the third-party binary, not a Zig reimplementation,
   and requires `[ZIGIX:TEST:PASS:toybox]`.
-- [ ] Replace the echo-only header overlay incrementally while adding file,
-  directory, process, and shell applets. Newlib's generic `dirent.h` currently
-  rejects this bare target, so directory-stream ABI is the next concrete libc
-  design input.
+- [x] Compile upstream `cat.c` unchanged, add the newlib `open` hook it
+  exercises, and prove file input with `[ZIGIX:TEST:PASS:toybox_cat]`. Keep
+  `getdents64` regression coverage valid when the larger initramfs requires
+  multiple directory-read buffers.
+- [ ] Replace the bootstrap header overlay incrementally while adding file,
+  directory, process, and shell applets. The file-applet slice is now live;
+  newlib's generic `dirent.h` still rejects this bare target, so directory
+  streams are the next concrete libc design input.
 - [x] Record every missing syscall or libc hook exposed by the build in
   `docs/posix-compat.md`; implement only exercised behavior.
 
@@ -696,11 +700,11 @@ This is the project-level target, not merely a successful link.
 
 The next thing to do, concretely:
 
-1. Source `.env`, then run `ci/local.sh` to confirm the Phase 15 smoke and the
-   Phase 12 scripted interactive smoke still pass.
-2. Expand the Toybox port beyond the echo-only header overlay. Design newlib
-   directory streams over Zigix `getdents64`, then target one upstream file or
-   directory applet without regressing `[ZIGIX:TEST:PASS:toybox]`.
+1. Source `.env`, then run `ci/local.sh` to confirm the completed Phase 15
+   substrate and the Phase 12 scripted interactive smoke still pass.
+2. Design newlib directory streams over Zigix `getdents64`, then target one
+   upstream Toybox directory applet without regressing the `echo` and `cat`
+   markers.
 3. Keep the dependency order explicit: third-party C userspace → VM/process
    ABI → threads/waits → storage/devices/network → hosted dynamic runtime →
    window/graphics/GTK → Firefox. Do not pull late GUI plumbing forward

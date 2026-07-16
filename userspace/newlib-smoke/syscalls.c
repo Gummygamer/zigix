@@ -1,4 +1,6 @@
 #include <errno.h>
+#include <fcntl.h>
+#include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/stat.h>
@@ -49,6 +51,21 @@ ssize_t read(int fd, void *buffer, size_t length) {
 
 ssize_t write(int fd, const void *buffer, size_t length) {
   return _write(fd, buffer, length);
+}
+
+int _open(const char *path, int flags, int mode) {
+  return (int)result(syscall3(2, (long)path, flags, mode));
+}
+
+int open(const char *path, int flags, ...) {
+  int mode = 0;
+  if (flags & O_CREAT) {
+    va_list args;
+    va_start(args, flags);
+    mode = va_arg(args, int);
+    va_end(args);
+  }
+  return _open(path, flags, mode);
 }
 
 int _close(int fd) {

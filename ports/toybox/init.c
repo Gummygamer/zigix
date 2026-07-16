@@ -41,14 +41,19 @@ static void quit(int status) {
 }
 
 void _start(void) {
-  static const char *argv[] = {
+  static const char *echo_argv[] = {
       "/toybox-echo",
       "[ZIGIX:TEST:PASS:toybox]",
       0,
   };
+  static const char *cat_argv[] = {
+      "/toybox-cat",
+      "/toybox-cat-input",
+      0,
+  };
 
   say("[ZIGIX:INIT:START]\n");
-  long pid = syscall3(4000, (long)argv[0], (long)argv, 0);
+  long pid = syscall3(4000, (long)echo_argv[0], (long)echo_argv, 0);
   if (pid <= 0) {
     say("[ZIGIX:TEST:FAIL:toybox:spawn]\n");
     quit(1);
@@ -58,6 +63,18 @@ void _start(void) {
   long waited = syscall4(61, pid, (long)&status, 0, 0);
   if (waited != pid || status != 0) {
     say("[ZIGIX:TEST:FAIL:toybox:wait]\n");
+    quit(1);
+  }
+
+  status = -1;
+  pid = syscall3(4000, (long)cat_argv[0], (long)cat_argv, 0);
+  if (pid <= 0) {
+    say("[ZIGIX:TEST:FAIL:toybox_cat:spawn]\n");
+    quit(1);
+  }
+  waited = syscall4(61, pid, (long)&status, 0, 0);
+  if (waited != pid || status != 0) {
+    say("[ZIGIX:TEST:FAIL:toybox_cat:wait]\n");
     quit(1);
   }
 
