@@ -15,6 +15,9 @@ OS with:
 - musl/newlib compatibility as the first ecosystem bridge;
 - BusyBox/Toybox as the first realistic userspace target;
 - GNU tools later;
+- a test-gated path through graphics, networking, and a hosted runtime;
+- Firefox opening and rendering an interactive page in the GUI as the
+  project-level acceptance target;
 - explicit investigation of whether Bun's Zig fork improves the OS development
   loop.
 
@@ -51,6 +54,12 @@ Phase 15 is in progress. Its `/libc-compat` child is built exclusively against
 the newlib-style hooks and verifies identity, tty, cwd, and file I/O behavior
 before emitting `[ZIGIX:TEST:PASS:libc_shim_compat]`; this is the gate for the
 first narrow third-party userspace build.
+
+The roadmap now continues beyond command-line userspace through virtual
+memory, pthreads, persistent storage, interactive devices, networking, a
+dynamic C runtime, a window/graphics stack, GTK, and a Firefox ESR port. The
+terminal acceptance test boots a graphical QEMU image, launches Firefox,
+loads a deterministic page, injects input, and verifies rendered pixels.
 
 The kernel has per-process descriptor tables, `dup`, close-on-exec metadata,
 basic pipe read/write coverage, process-table/PID lifecycle coverage,

@@ -29,8 +29,18 @@ rejected.
 | 13    | libc strategy                        | done         | `[ZIGIX:TEST:PASS:libc_shim_newlib]` |
 | 14    | Shell/POSIX usability                | done         | Phase 14 QEMU smoke (`dup2`, `chdir`, `getpid`, `getdents64`, writable memfs, redirection, `cat`, `ls`) |
 | 15    | Portability substrate                | in progress  | `[ZIGIX:TEST:PASS:libc_shim_time_stubs]` |
-| 16    | BusyBox or Toybox port               | pending      | per-phase markers TBD |
-| 17    | GNU tools later                      | pending      | per-phase markers TBD |
+| 16    | First third-party C userspace        | pending      | `[ZIGIX:TEST:PASS:toybox]` |
+| 17    | Virtual memory and process ABI       | pending      | `[ZIGIX:TEST:PASS:posix_vm]` |
+| 18    | Threads, preemption, and IPC waits   | pending      | `[ZIGIX:TEST:PASS:pthreads]` |
+| 19    | Persistent filesystem                | pending      | `[ZIGIX:TEST:PASS:persistent_fs]` |
+| 20    | PCI and interactive devices          | pending      | `[ZIGIX:TEST:PASS:gui_devices]` |
+| 21    | Networking and sockets               | pending      | `[ZIGIX:TEST:PASS:http_fetch]` |
+| 22    | Hosted C runtime and dynamic ELF     | pending      | `[ZIGIX:TEST:PASS:dynamic_elf]` |
+| 23    | Window system                        | pending      | `[ZIGIX:TEST:PASS:window_system]` |
+| 24    | 2D graphics, text, and fonts         | pending      | `[ZIGIX:TEST:PASS:graphics_stack]` |
+| 25    | GTK application stack                | pending      | `[ZIGIX:TEST:PASS:gtk_demo]` |
+| 26    | Firefox port                         | pending      | `[ZIGIX:FIREFOX:STARTED]` |
+| 27    | Firefox GUI acceptance               | pending      | screenshot + `[ZIGIX:FIREFOX:GUI:OK]` |
 
 ## Phase 0 — Toolchain and smoke-test skeleton ✅
 
@@ -507,17 +517,148 @@ BusyBox/Toybox tree.
 - Document unsupported-but-intentional POSIX behavior in `docs/posix-compat.md`
   as failures are found.
 
-## Phase 16 — BusyBox or Toybox port
+## Phase 16 — First third-party C userspace
 
-- First serious userspace beyond hand-written stubs. Port the smaller one
-  first.
-- Keep the first target narrow: one static binary, one applet that exercises
-  cwd, directory reads, stdio, and process wait semantics.
+Use Toybox as the first serious userspace because it can be configured as one
+static binary and narrowed to individual applets. Do not make a full GNU
+userland a prerequisite for graphics or Firefox.
 
-## Phase 17 — GNU tools later
+- Import a pinned, reproducible Toybox source revision and document its
+  license and local patch set.
+- Cross-build one static applet through the Phase 15 libc contract first.
+  Expand to file, directory, process, and shell applets only after the first
+  applet boots.
+- Add a QEMU smoke that runs the third-party binary, not a Zig reimplementation,
+  and requires `[ZIGIX:TEST:PASS:toybox]`.
+- Record every missing syscall or libc hook exposed by the build in
+  `docs/posix-compat.md`; implement only exercised behavior.
 
-- Only after BusyBox/Toybox runs cleanly on the kernel. coreutils,
-  bash, etc.
+## Phase 17 — Virtual memory and process ABI
+
+Firefox and a hosted libc need a real virtual-memory contract. This phase is
+complete only when userspace owns sparse mappings rather than a fixed image
+plus one stack.
+
+- `brk`/`sbrk`, anonymous and file-backed `mmap`, `munmap`, `mprotect`, and
+  page-fault-backed lazy allocation.
+- Replace the fixed process-region array with a VMA structure and enforce
+  user/kernel permissions on every copy-in/copy-out path.
+- PIE ELF loading, auxv, environment vectors, and a growable guarded stack.
+- `fork` with copy-on-write, complete `execve`, `wait4`, process groups, and
+  the first usable signal delivery/return path.
+- Marker: `[ZIGIX:TEST:PASS:posix_vm]` from a userspace program that combines
+  heap growth, protected mappings, fork/exec, and signal handling.
+
+## Phase 18 — Threads, preemption, and IPC waits
+
+- Timer-driven preemption and saved syscall continuations; remove the current
+  `EAGAIN` polling policy for console and pipe waits.
+- Kernel thread objects sharing one process address space, userspace TLS,
+  `clone`-style creation, and robust exit/join behavior.
+- Futexes, monotonic/realtime clocks, sleeps, poll/select, eventfd, and the
+  signal mask primitives required by pthreads and event loops.
+- Port the selected libc's pthread layer and stress it under QEMU.
+- Marker: `[ZIGIX:TEST:PASS:pthreads]` after concurrent allocation, pipe I/O,
+  timed waits, TLS, and joins survive a preemptive stress run.
+
+## Phase 19 — Persistent filesystem
+
+- Add a QEMU-friendly block driver (start with virtio-blk) and a buffer cache.
+- Mount a writable on-disk filesystem with permissions, timestamps, symlinks,
+  hard links, rename durability, and sufficiently complete `stat` semantics.
+- Add file locks, `fsync`, `mmap` coherence, and large-file offsets before
+  treating the filesystem as browser-profile safe.
+- Marker: `[ZIGIX:TEST:PASS:persistent_fs]` must survive a QEMU reboot and
+  verify a file written before shutdown.
+
+## Phase 20 — PCI and interactive devices
+
+- Enumerate PCI and provide interrupt routing suitable for virtio devices.
+- Add virtio-gpu (or a deliberately documented Bochs/QEMU framebuffer first),
+  mode discovery, damage updates, and a userspace framebuffer mapping.
+- Add virtio-input or PS/2 keyboard and mouse event devices with blocking
+  reads and timestamps.
+- Keep serial as the recovery console.
+- Marker: `[ZIGIX:TEST:PASS:gui_devices]` after userspace draws a test pattern
+  and consumes injected keyboard and pointer events.
+
+## Phase 21 — Networking and sockets
+
+- Start with virtio-net, then Ethernet, ARP, IPv4, ICMP, UDP, TCP, and DHCP.
+- Implement the socket ABI, blocking/nonblocking operation, poll integration,
+  DNS resolution, routing, and network-interface configuration.
+- Port a small TLS library after plain HTTP is reliable; seed randomness from
+  a documented entropy source rather than a deterministic test PRNG.
+- Marker: `[ZIGIX:TEST:PASS:http_fetch]` after a guest process resolves a test
+  hostname and fetches a deterministic HTTP response from the QEMU host.
+
+## Phase 22 — Hosted C runtime and dynamic ELF
+
+- Select and port a maintained libc suitable for Firefox dependencies; newlib
+  remains the bootstrap layer, not the final browser runtime.
+- Support shared objects, relocations, TLS relocations, PIE, `dlopen`/`dlsym`,
+  and an ELF dynamic loader with deterministic dependency lookup.
+- Close the exercised POSIX surface for locale, time zones, passwd/group,
+  terminal control, shared memory, Unix sockets, and process spawning.
+- Marker: `[ZIGIX:TEST:PASS:dynamic_elf]` from a dynamically linked,
+  multithreaded C program that loads a plugin at runtime.
+
+## Phase 23 — Window system
+
+- Define the display protocol and security boundary. Prefer a small Wayland
+  compositor unless dependency experiments demonstrate that an X11 server is
+  materially cheaper for the chosen Firefox/GTK configuration.
+- Provide surfaces, shared-memory buffers, damage, input focus, clipboard,
+  cursor, window lifecycle, and event-loop integration.
+- Add a deterministic headless backend so CI can inspect rendered pixels.
+- Marker: `[ZIGIX:TEST:PASS:window_system]` after two isolated clients render,
+  receive routed input, and close without leaking kernel objects.
+
+## Phase 24 — 2D graphics, text, and fonts
+
+- Port the smallest dependency chain that supplies pixman/Cairo-compatible 2D
+  drawing, FreeType, Fontconfig, HarfBuzz, and text shaping.
+- Begin with software rendering; hardware acceleration is not a Firefox-launch
+  blocker and must not precede correctness.
+- Validate alpha compositing, clipping, image decode, font discovery, Unicode
+  shaping, and shared-memory presentation.
+- Marker: `[ZIGIX:TEST:PASS:graphics_stack]` plus a pixel-hash fixture produced
+  by the headless compositor.
+
+## Phase 25 — GTK application stack
+
+- Port GLib and the exercised GTK stack, including its main loop, threading,
+  filesystem monitoring, settings, accessibility stubs, and display backend.
+- Stub desktop services only when GTK/Firefox tolerates the documented absence;
+  otherwise provide the required D-Bus-compatible service.
+- Marker: `[ZIGIX:TEST:PASS:gtk_demo]` after an automated GUI demo opens a
+  window, renders text and an image, accepts input, and exits cleanly.
+
+## Phase 26 — Firefox port
+
+- Pin a Firefox ESR source revision and maintain a reviewable Zigix patch set.
+- Cross-build the browser and its Rust/C++ dependencies against the Phase 22
+  runtime and Phase 25 GUI stack. Keep sandboxing enabled or explicitly mark
+  the milestone incomplete.
+- Bring up the parent, content, compositor, and network processes in stages;
+  add crash markers that distinguish dependency failures.
+- Marker: `[ZIGIX:FIREFOX:STARTED]` only after the browser process opens its
+  first top-level window and the content process remains alive.
+
+## Phase 27 — Firefox GUI acceptance
+
+This is the project-level target, not merely a successful link.
+
+- Boot a clean disk image in QEMU with graphical output, obtain network
+  configuration, start the compositor/session, and launch Firefox without
+  serial-shell intervention.
+- Load a deterministic local HTTP page containing text, CSS, an image, and
+  JavaScript; inject pointer and keyboard input; verify the page changes.
+- Capture the framebuffer and compare stable regions against a checked-in
+  fixture. Emit `[ZIGIX:FIREFOX:GUI:OK]` only after pixel, input, browser
+  process, and network assertions all pass.
+- Preserve a manual mode that can browse external HTTPS sites, but keep the CI
+  acceptance test local and deterministic.
 
 ## Hard rules
 
@@ -535,13 +676,14 @@ BusyBox/Toybox tree.
 
 The next thing to do, concretely:
 
-1. Source `.env`, then run `ci/local.sh` to confirm the completed Phase 14
-   smoke and the Phase 12 scripted interactive smoke still pass.
-2. Use the `libc_shim_compat` marker as the gate for the first narrow
-   third-party userspace build; add directory or heap hooks only when that
-   build identifies a concrete required ABI hook.
-3. Keep transparent blocking syscall resume and signals on the deferred list
-   unless the newlib port exposes a concrete need for either.
+1. Source `.env`, then run `ci/local.sh` to confirm the Phase 15 smoke and the
+   Phase 12 scripted interactive smoke still pass.
+2. Pin Toybox and attempt one minimal static applet build. Treat its first
+   compile/link failure as the specification for the next Phase 15 ABI slice.
+3. Keep the dependency order explicit: third-party C userspace → VM/process
+   ABI → threads/waits → storage/devices/network → hosted dynamic runtime →
+   window/graphics/GTK → Firefox. Do not pull late GUI plumbing forward
+   without a boot-tested user.
 
 Operational reminders for a fresh session:
 
