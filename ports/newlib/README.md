@@ -17,4 +17,12 @@ a clean build and a successful archive test.
 
 The generated sysroot is deliberately ignored. It contains newlib headers,
 including `regex.h`, and `libc.a`; later port steps link it with Zigix startup
-and syscall objects.
+and syscall objects. Boot the archive-backed C runtime probe with:
+
+```sh
+tools/ports/run-newlib-smoke.sh zig-out/ports/newlib/sysroot/x86_64-elf
+```
+
+That program exercises newlib `malloc`, `snprintf`, `strcmp`, `write`, and
+`free` against a temporary 64 KiB userspace `_sbrk` arena. The arena is only a
+bootstrap contract; Phase 17 replaces it with process VM syscalls.

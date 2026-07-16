@@ -67,5 +67,6 @@ make -C "$build_root" \
 
 test -f "$sysroot/x86_64-elf/include/regex.h"
 test -f "$sysroot/x86_64-elf/lib/libc.a"
+printf '%s\n' "$actual_revision" > "$sysroot/x86_64-elf/ZIGIX_NEWLIB_REVISION"
 printf '[ZIGIX:TEST:PASS:newlib_archive]\n'
 printf '[newlib] sysroot: %s/x86_64-elf\n' "$sysroot"

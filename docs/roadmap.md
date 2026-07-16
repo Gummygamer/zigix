@@ -518,8 +518,12 @@ BusyBox/Toybox tree.
   `echo` applet, and reproduce its first compile blocker. Add a Bun-Zig newlib
   build that produces `regex.h` and `libc.a`; marker:
   `[ZIGIX:TEST:PASS:newlib_archive]`.
-- [ ] Link and boot a C program against the generated newlib archive. The next
-  recorded Toybox portability gap is its Linux `byteswap.h` assumption.
+- [x] Link and boot a C program against the generated newlib archive. It
+  exercises `malloc`, `snprintf`, `strcmp`, `write`, and `free` before emitting
+  `[ZIGIX:TEST:PASS:newlib_c_runtime]`. Its fixed 64 KiB `_sbrk` arena is a
+  bootstrap mechanism, not the Phase 17 VM contract.
+- [ ] Carry the narrow Toybox portability patch for its Linux `byteswap.h`
+  assumption and continue the single-`echo` build.
 - Document unsupported-but-intentional POSIX behavior in `docs/posix-compat.md`
   as failures are found.
 
@@ -684,9 +688,9 @@ The next thing to do, concretely:
 
 1. Source `.env`, then run `ci/local.sh` to confirm the Phase 15 smoke and the
    Phase 12 scripted interactive smoke still pass.
-2. Build and boot a minimal C program against the pinned newlib archive, then
-   carry a narrow Toybox portability patch for `byteswap.h` and continue the
-   single-`echo` build to its next concrete failure.
+2. Carry a narrow Toybox portability patch for `byteswap.h` and continue the
+   single-`echo` build to its next concrete failure. The pinned newlib archive
+   and its QEMU C-runtime smoke are now available as the build foundation.
 3. Keep the dependency order explicit: third-party C userspace → VM/process
    ABI → threads/waits → storage/devices/network → hosted dynamic runtime →
    window/graphics/GTK → Firefox. Do not pull late GUI plumbing forward

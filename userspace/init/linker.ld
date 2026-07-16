@@ -4,6 +4,7 @@ PHDRS
 {
   text PT_LOAD FLAGS(5);
   rodata PT_LOAD FLAGS(4);
+  data PT_LOAD FLAGS(6);
 }
 
 SECTIONS
@@ -19,4 +20,15 @@ SECTIONS
   {
     *(.rodata .rodata.*)
   } :rodata
+
+  .data : ALIGN(0x1000)
+  {
+    *(.data .data.*)
+  } :data
+
+  .bss : ALIGN(0x1000)
+  {
+    *(.bss .bss.*)
+    *(COMMON)
+  } :data
 }

@@ -54,6 +54,10 @@ Phase 15 is in progress. Its `/libc-compat` child is built exclusively against
 the newlib-style hooks and verifies identity, tty, cwd, and file I/O behavior
 before emitting `[ZIGIX:TEST:PASS:libc_shim_compat]`; this is the gate for the
 first narrow third-party userspace build.
+Pinned newlib sources now build into headers plus `libc.a` with Bun Zig, and a
+separate QEMU smoke links a C program from that archive and verifies newlib
+allocation, formatting, string, and write paths with
+`[ZIGIX:TEST:PASS:newlib_c_runtime]`.
 
 The roadmap now continues beyond command-line userspace through virtual
 memory, pthreads, persistent storage, interactive devices, networking, a

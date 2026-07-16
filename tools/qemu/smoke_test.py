@@ -122,6 +122,12 @@ PHASES: dict[str, list[str]] = {
         "[ZIGIX:INIT:START]",
         "[ZIGIX:INIT:OK]",
     ],
+    "phase15-newlib": [
+        "[ZIGIX:BOOT:OK]",
+        "[ZIGIX:INIT:START]",
+        "[ZIGIX:TEST:PASS:newlib_c_runtime]",
+        "[ZIGIX:INIT:OK]",
+    ],
 }
 
 

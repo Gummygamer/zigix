@@ -181,6 +181,13 @@ run "smoke-parser-accepts-phase15" bash -c '
   tools/qemu/smoke_test.py "$tmp" --phase phase15
 '
 
+run "smoke-parser-accepts-phase15-newlib" bash -c '
+  tmp=$(mktemp)
+  trap "rm -f $tmp" EXIT
+  printf "[ZIGIX:BOOT:OK]\n[ZIGIX:INIT:START]\n[ZIGIX:TEST:PASS:newlib_c_runtime]\n[ZIGIX:INIT:OK]\n" > "$tmp"
+  tools/qemu/smoke_test.py "$tmp" --phase phase15-newlib
+'
+
 # 6. The validate-elf script must reject a non-ELF file (negative test).
 run "validate-elf-rejects-non-elf" bash -c '
   tmp=$(mktemp)
