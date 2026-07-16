@@ -1,7 +1,7 @@
 # Toybox port
 
 The first third-party userspace target is a narrow Toybox `echo`, `cat`,
-`nproc`, and `id` slice, pinned by `REVISION` and configured by `miniconfig`.
+`nproc`, `id`, and `pwd` slice, pinned by `REVISION` and configured by `miniconfig`.
 Upstream is ISC licensed; keep its `LICENSE` with redistributed source or
 binary.
 
@@ -12,7 +12,8 @@ nonstandard `byteswap.h`; `patches/` carries the builtins-based Zigix
 adaptation rather than adding Linux headers to newlib.
 
 The first bootable slices compile upstream `toys/posix/echo.c`,
-`toys/posix/cat.c`, `toys/other/taskset.c`, and `toys/posix/id.c` unchanged.
+`toys/posix/cat.c`, `toys/other/taskset.c`, `toys/posix/id.c`, and
+`toys/posix/pwd.c` unchanged.
 The local `toys.h` overlay plus bootstrap runtime files provide only the small
 Toybox context, option bits, and helpers these applets use. Build and boot them
 with:
@@ -38,5 +39,9 @@ syscalls. Init captures and validates `0\n` before emitting
 `[ZIGIX:TEST:PASS:toybox_id]`; named-user databases and multi-user permissions
 are intentionally not implied.
 
-The `toybox`, `toybox_cat`, `toybox_nproc`, and `toybox_id` markers prove all
-four upstream implementations boot, use newlib, and exit successfully in QEMU.
+The `pwd -P` slice calls Zigix `getcwd` through newlib. Init accepts only the
+root path output `/\n` before emitting `[ZIGIX:TEST:PASS:toybox_pwd]`.
+
+The `toybox`, `toybox_cat`, `toybox_nproc`, `toybox_id`, and `toybox_pwd`
+markers prove all five upstream implementations boot, use newlib, and exit
+successfully in QEMU.

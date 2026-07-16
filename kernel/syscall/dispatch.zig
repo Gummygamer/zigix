@@ -362,6 +362,7 @@ pub fn invoke(num: u64, arg0: u64, arg1: u64, arg2: u64, arg3: u64, arg4: u64, a
         numbers.wait4 => sysWait4(arg0, arg1, arg2, arg3),
         numbers.truncate => sysTruncate(arg0, arg1),
         numbers.ftruncate => sysFtruncate(arg0, arg1),
+        numbers.getcwd => sysGetcwd(arg0, arg1),
         numbers.chdir => sysChdir(arg0),
         numbers.rename => sysRename(arg0, arg1),
         numbers.mkdir => sysMkdir(arg0),
@@ -674,6 +675,16 @@ fn sysGetdents64(fd_arg: u64, dirent_ptr: u64, count: u64) i64 {
         writeDirent64(dest[written .. written + record_len], entry, open_dir.dir.cookie);
         written += record_len;
     }
+}
+
+fn sysGetcwd(buf_ptr: u64, size: u64) i64 {
+    const process = currentProcess() orelse return errno.fail(errno.SRCH);
+    const required = process.cwd_len + 1;
+    if (size < required) return errno.fail(errno.RANGE);
+    const dest = userBytesMut(buf_ptr, size) orelse return errno.fail(errno.FAULT);
+    @memcpy(dest[0..process.cwd_len], process.cwd());
+    dest[process.cwd_len] = 0;
+    return @intCast(required);
 }
 
 fn sysTruncate(path_ptr: u64, len: u64) i64 {

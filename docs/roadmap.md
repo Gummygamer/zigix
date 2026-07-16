@@ -29,7 +29,7 @@ rejected.
 | 13    | libc strategy                        | done         | `[ZIGIX:TEST:PASS:libc_shim_newlib]` |
 | 14    | Shell/POSIX usability                | done         | Phase 14 QEMU smoke (`dup2`, `chdir`, `getpid`, `getdents64`, writable memfs, redirection, `cat`, `ls`) |
 | 15    | Portability substrate                | done         | `[ZIGIX:TEST:PASS:newlib_c_runtime]` |
-| 16    | First third-party C userspace        | in progress  | `toybox` + `toybox_cat` + `newlib_dirent` + `toybox_nproc` + `toybox_id` |
+| 16    | First third-party C userspace        | done         | `toybox` + `toybox_cat` + `newlib_dirent` + `toybox_nproc` + `toybox_id` + `toybox_pwd` |
 | 17    | Virtual memory and process ABI       | pending      | `[ZIGIX:TEST:PASS:posix_vm]` |
 | 18    | Threads, preemption, and IPC waits   | pending      | `[ZIGIX:TEST:PASS:pthreads]` |
 | 19    | Persistent filesystem                | pending      | `[ZIGIX:TEST:PASS:persistent_fs]` |
@@ -570,11 +570,16 @@ userland a prerequisite for graphics or Firefox.
       unchanged, and the harness emits `[ZIGIX:TEST:PASS:toybox_id]` only after
       its numeric `id -u` path produces exactly `0\n`. Per-process credentials
       and permission enforcement remain later security work.
-- [ ] Replace the bootstrap header overlay incrementally while adding file,
-  directory, process, and shell applets. File applets and the directory-stream
-  libc boundary are now live; the next slice should compile the narrowest
-  useful upstream Toybox directory consumer and record the support-library or
-  syscall gaps it exposes.
+- [x] Add Linux-numbered `getcwd` over per-process cwd state, with kernel marker
+      `[ZIGIX:TEST:PASS:syscall_getcwd]`. Pinned upstream `pwd.c` compiles
+      unchanged; init validates `/\n` before emitting
+      `[ZIGIX:TEST:PASS:toybox_pwd]`. Together `cat`, `nproc`, `id`, and `pwd`
+      close the first file, directory, process-identity, and shell-oriented
+      applet categories without claiming the full Toybox multicall runtime.
+- [x] Broaden the bootstrap header overlay only as each booted file, directory,
+      process, or shell applet requires. Replacing it with regular Toybox
+      generated headers and support libraries remains future port hardening,
+      not a blocker for the Phase 17 VM contract.
 - [x] Record every missing syscall or libc hook exposed by the build in
   `docs/posix-compat.md`; implement only exercised behavior.
 
@@ -721,13 +726,13 @@ This is the project-level target, not merely a successful link.
 
 The next thing to do, concretely:
 
-1. Source `.env`, then run `ci/local.sh` to confirm the completed Phase 15
-   substrate, Phase 16 directory streams, and the Phase 12 scripted interactive
-   smoke still pass.
-2. Broaden the Toybox bootstrap above the now-proven file, directory, and
-   process-identity boundaries. Prefer a shell-oriented applet or a regular
-   support-library replacement that exposes a real ABI gap; keep `echo`, `cat`,
-   `nproc`, `id`, and `newlib_dirent` green while recording each blocker.
+1. Source `.env`, then run `ci/local.sh` and the optional newlib/Toybox QEMU
+   gates to confirm the completed Phase 16 substrate remains green.
+2. Start Phase 17 with the smallest booted VM slice: define page-aligned
+   anonymous `mmap`/`munmap` ABI semantics, replace no more fixed region state
+   than that test requires, and emit `[ZIGIX:TEST:PASS:posix_vm]` only when the
+   full phase contract is satisfied. Preserve the fixed `_sbrk` arena until a
+   real `brk` slice replaces it.
 3. Keep the dependency order explicit: third-party C userspace → VM/process
    ABI → threads/waits → storage/devices/network → hosted dynamic runtime →
    window/graphics/GTK → Firefox. Do not pull late GUI plumbing forward

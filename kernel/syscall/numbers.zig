@@ -23,6 +23,7 @@ pub const exit: u64 = 60;
 pub const wait4: u64 = 61;
 pub const truncate: u64 = 76;
 pub const ftruncate: u64 = 77;
+pub const getcwd: u64 = 79;
 pub const chdir: u64 = 80;
 pub const rename: u64 = 82;
 pub const mkdir: u64 = 83;

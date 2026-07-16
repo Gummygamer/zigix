@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compile upstream Toybox echo.c, cat.c, nproc, and id with the bootstrap.
+# Compile upstream Toybox echo.c, cat.c, nproc, id, and pwd with the bootstrap.
 
 set -euo pipefail
 
@@ -86,6 +86,17 @@ tools/toolchain/zigix-cc "${common[@]}" \
   -o "$out/toybox-id"
 
 tools/toolchain/zigix-cc "${common[@]}" \
+  -D__ZIGIX__ \
+  -I ports/toybox \
+  -isystem "$include_dir" \
+  ports/toybox/start.S \
+  ports/toybox/runtime-pwd.c \
+  "$toybox_source/toys/posix/pwd.c" \
+  userspace/newlib-smoke/syscalls.c \
+  "$libc" \
+  -o "$out/toybox-pwd"
+
+tools/toolchain/zigix-cc "${common[@]}" \
   ports/toybox/init.c \
   -o "$out/init"
 
@@ -100,6 +111,7 @@ python3 tools/mkinitramfs/pack.py "$out/initramfs.zixr" \
   --entry toybox-cat "$out/toybox-cat" \
   --entry toybox-nproc "$out/toybox-nproc" \
   --entry toybox-id "$out/toybox-id" \
+  --entry toybox-pwd "$out/toybox-pwd" \
   --entry toybox-cat-input ports/toybox/cat-marker.txt \
   --entry sys/devices/system/cpu/cpu0 ports/toybox/cat-marker.txt \
   --entry sys/devices/system/cpu/cpu1 ports/toybox/cat-marker.txt

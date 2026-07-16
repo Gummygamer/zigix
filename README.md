@@ -23,7 +23,7 @@ OS with:
 
 ## Status
 
-Phases 0–15 are complete and Phase 16 is in progress: Zigix boots under QEMU, initializes memory management
+Phases 0–16 are complete and Phase 17 is next: Zigix boots under QEMU, initializes memory management
 and interrupts, mounts a Multiboot-loaded initramfs on a small VFS/memfs root,
 installs syscall ABI v0, validates a static ELF64 load plan, maps and enters a
 freestanding ring-3 `/init`, runs `/tinysh -c /exec-ok` for the Phase 11
@@ -76,6 +76,10 @@ Zigix also exposes real/effective UID and GID calls under a documented
 single-user-root policy. Unchanged upstream Toybox `id.c` consumes that ABI;
 the harness checks numeric `id -u` output before emitting
 `[ZIGIX:TEST:PASS:toybox_id]`.
+Unchanged upstream Toybox `pwd.c` also consumes a new `getcwd` syscall backed
+by per-process cwd state; exact `/\n` output gates
+`[ZIGIX:TEST:PASS:toybox_pwd]`. These applets close Phase 16 without claiming a
+complete Toybox multicall port.
 
 The roadmap now continues beyond command-line userspace through virtual
 memory, pthreads, persistent storage, interactive devices, networking, a

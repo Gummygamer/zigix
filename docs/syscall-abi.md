@@ -42,6 +42,7 @@ The syscall layer uses Linux errno numbers for the exposed set:
 | `EINVAL` | 22 |
 | `ENFILE` | 23 |
 | `EPIPE` | 32 |
+| `ERANGE` | 34 |
 | `ENAMETOOLONG` | 36 |
 | `ENOSYS` | 38 |
 
@@ -65,6 +66,7 @@ The syscall layer uses Linux errno numbers for the exposed set:
 | 61 | `wait4` | `pid_t wait4(pid_t pid, int *wstatus, int options, void *rusage)` |
 | 76 | `truncate` | `int truncate(const char *path, off_t length)` |
 | 77 | `ftruncate` | `int ftruncate(int fd, off_t length)` |
+| 79 | `getcwd` | `long getcwd(char *buf, size_t size)` |
 | 80 | `chdir` | `int chdir(const char *path)` |
 | 82 | `rename` | `int rename(const char *oldpath, const char *newpath)` |
 | 83 | `mkdir` | `int mkdir(const char *path, mode_t mode)` |
@@ -179,6 +181,15 @@ Per-process credentials, permission checks, and credential-changing syscalls
 remain future work; these calls are not a claim that multi-user security exists.
 
 Errors: none.
+
+### `getcwd`
+
+Copies the caller's normalized absolute working directory and a terminating
+NUL into `buf`. The raw syscall returns the byte count including that NUL,
+matching Linux; the newlib port wrapper returns `buf`. A buffer smaller than
+the path plus terminator fails with `ERANGE`.
+
+Errors: `EFAULT`, `ERANGE`.
 
 ### `getdents64`
 

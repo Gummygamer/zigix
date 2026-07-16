@@ -3,6 +3,7 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <sys/times.h>
 #include <sys/time.h>
@@ -94,6 +95,19 @@ int _getpid(void) {
 
 int getpid(void) {
   return _getpid();
+}
+
+char *getcwd(char *buffer, size_t size) {
+  int allocated = 0;
+  if (!buffer) {
+    size = 256;
+    buffer = malloc(size);
+    if (!buffer) return NULL;
+    allocated = 1;
+  }
+  if (result(syscall3(79, (long)buffer, size, 0)) >= 0) return buffer;
+  if (allocated) free(buffer);
+  return NULL;
 }
 
 uid_t getuid(void) {

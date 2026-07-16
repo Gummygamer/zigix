@@ -139,11 +139,13 @@ PHASES: dict[str, list[str]] = {
         "[ZIGIX:BOOT:OK]",
         "[ZIGIX:TEST:PASS:cpu_sse]",
         "[ZIGIX:TEST:PASS:syscall_credentials]",
+        "[ZIGIX:TEST:PASS:syscall_getcwd]",
         "[ZIGIX:INIT:START]",
         "[ZIGIX:TEST:PASS:toybox]",
         "[ZIGIX:TEST:PASS:toybox_cat]",
         "[ZIGIX:TEST:PASS:toybox_nproc]",
         "[ZIGIX:TEST:PASS:toybox_id]",
+        "[ZIGIX:TEST:PASS:toybox_pwd]",
         "[ZIGIX:INIT:OK]",
     ],
 }

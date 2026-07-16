@@ -19,6 +19,7 @@ pub const NOTEMPTY: i64 = 39;
 pub const NAMETOOLONG: i64 = 36;
 pub const NFILE: i64 = 23;
 pub const PIPE: i64 = 32;
+pub const RANGE: i64 = 34;
 pub const ISDIR: i64 = 21;
 pub const NOTDIR: i64 = 20;
 

@@ -12,7 +12,7 @@
 #include <unistd.h>
 #include <wchar.h>
 
-#if defined(FOR_taskset) || defined(FOR_id)
+#if defined(FOR_taskset) || defined(FOR_id) || defined(FOR_pwd)
 #include <ctype.h>
 #include <errno.h>
 #include <limits.h>
@@ -35,7 +35,11 @@ struct zigix_toy_context {
 
 extern struct zigix_toy_context toys;
 
-#if defined(FOR_id)
+#if defined(FOR_pwd)
+#include <sys/stat.h>
+#define FLAG_L (1ULL << 0)
+#define FLAG_P (1ULL << 1)
+#elif defined(FOR_id)
 #define FLAG_n (1ULL << 0)
 #define FLAG_G (1ULL << 1)
 #define FLAG_g (1ULL << 2)
@@ -102,6 +106,11 @@ int getgrouplist(const char *user, gid_t group, gid_t *groups, int *count);
 int lsm_enabled(void);
 char *lsm_context(void);
 char *lsm_name(void);
+#endif
+
+#if defined(FOR_pwd)
+int same_file(struct stat *left, struct stat *right);
+void perror_exit(char *format, ...);
 #endif
 
 #endif

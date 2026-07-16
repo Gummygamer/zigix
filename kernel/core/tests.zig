@@ -65,6 +65,11 @@ pub const TEST_syscall_chdir = testing.Test{
     .run = syscallChdir,
 };
 
+pub const TEST_syscall_getcwd = testing.Test{
+    .name = "syscall_getcwd",
+    .run = syscallGetcwd,
+};
+
 pub const TEST_syscall_getpid = testing.Test{
     .name = "syscall_getpid",
     .run = syscallGetpid,
@@ -405,6 +410,17 @@ fn syscallChdir() testing.TestError!void {
     }
     if (syscall.dispatch.invoke(syscall.numbers.chdir, @intFromPtr(missing.ptr), 0, 0, 0, 0, 0) != -syscall.errno.NOENT) {
         return error.SyscallChdirMissingAccepted;
+    }
+}
+
+fn syscallGetcwd() testing.TestError!void {
+    var cwd: [8]u8 = undefined;
+    if (syscall.dispatch.invoke(syscall.numbers.getcwd, @intFromPtr(&cwd), cwd.len, 0, 0, 0, 0) != 2) {
+        return error.SyscallGetcwdFailed;
+    }
+    if (cwd[0] != '/' or cwd[1] != 0) return error.SyscallGetcwdWrongPath;
+    if (syscall.dispatch.invoke(syscall.numbers.getcwd, @intFromPtr(&cwd), 1, 0, 0, 0, 0) != -syscall.errno.RANGE) {
+        return error.SyscallGetcwdSmallBufferAccepted;
     }
 }
 

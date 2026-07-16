@@ -191,7 +191,7 @@ run "smoke-parser-accepts-phase15-newlib" bash -c '
 run "smoke-parser-accepts-phase16-toybox" bash -c '
   tmp=$(mktemp)
   trap "rm -f $tmp" EXIT
-  printf "[ZIGIX:BOOT:OK]\n[ZIGIX:TEST:PASS:cpu_sse]\n[ZIGIX:TEST:PASS:syscall_credentials]\n[ZIGIX:INIT:START]\n[ZIGIX:TEST:PASS:toybox]\n[ZIGIX:TEST:PASS:toybox_cat]\n[ZIGIX:TEST:PASS:toybox_nproc]\n[ZIGIX:TEST:PASS:toybox_id]\n[ZIGIX:INIT:OK]\n" > "$tmp"
+  printf "[ZIGIX:BOOT:OK]\n[ZIGIX:TEST:PASS:cpu_sse]\n[ZIGIX:TEST:PASS:syscall_credentials]\n[ZIGIX:TEST:PASS:syscall_getcwd]\n[ZIGIX:INIT:START]\n[ZIGIX:TEST:PASS:toybox]\n[ZIGIX:TEST:PASS:toybox_cat]\n[ZIGIX:TEST:PASS:toybox_nproc]\n[ZIGIX:TEST:PASS:toybox_id]\n[ZIGIX:TEST:PASS:toybox_pwd]\n[ZIGIX:INIT:OK]\n" > "$tmp"
   tools/qemu/smoke_test.py "$tmp" --phase phase16-toybox
 '
 
