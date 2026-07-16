@@ -23,7 +23,7 @@ OS with:
 
 ## Status
 
-Phases 0–14 are complete and Phase 15 is in progress: Zigix boots under QEMU, initializes memory management
+Phases 0–15 are complete and Phase 16 is in progress: Zigix boots under QEMU, initializes memory management
 and interrupts, mounts a Multiboot-loaded initramfs on a small VFS/memfs root,
 installs syscall ABI v0, validates a static ELF64 load plan, maps and enters a
 freestanding ring-3 `/init`, runs `/tinysh -c /exec-ok` for the Phase 11
@@ -58,6 +58,11 @@ Pinned newlib sources now build into headers plus `libc.a` with Bun Zig, and a
 separate QEMU smoke links a C program from that archive and verifies newlib
 allocation, formatting, string, and write paths with
 `[ZIGIX:TEST:PASS:newlib_c_runtime]`.
+The first pinned Toybox slice compiles upstream `echo.c` unchanged against a
+narrow bootstrap header overlay and boots it with real argv in QEMU; the
+applet itself emits `[ZIGIX:TEST:PASS:toybox]`. Zigix also enables the x86_64
+SSE/SSE2 userspace baseline required by newlib stdio, while per-thread SIMD
+state ownership remains scheduled for the threading phase.
 
 The roadmap now continues beyond command-line userspace through virtual
 memory, pthreads, persistent storage, interactive devices, networking, a

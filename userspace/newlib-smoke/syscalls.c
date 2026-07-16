@@ -55,8 +55,16 @@ int _close(int fd) {
   return (int)result(syscall1(3, fd));
 }
 
+int close(int fd) {
+  return _close(fd);
+}
+
 off_t _lseek(int fd, off_t offset, int whence) {
   return result(syscall3(8, fd, offset, whence));
+}
+
+off_t lseek(int fd, off_t offset, int whence) {
+  return _lseek(fd, offset, whence);
 }
 
 int _getpid(void) {
@@ -89,6 +97,10 @@ int _isatty(int fd) {
   return 0;
 }
 
+int isatty(int fd) {
+  return _isatty(fd);
+}
+
 int _fstat(int fd, struct stat *out) {
   if (!out) {
     errno = EFAULT;
@@ -104,6 +116,10 @@ int _fstat(int fd, struct stat *out) {
 
   errno = ENOSYS;
   return -1;
+}
+
+int fstat(int fd, struct stat *out) {
+  return _fstat(fd, out);
 }
 
 static unsigned char heap[64 * 1024] __attribute__((aligned(16)));

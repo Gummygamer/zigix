@@ -30,7 +30,8 @@ Update this file whenever syscall or POSIX semantics change.
 | `cat` utility | partial | initramfs userspace command that copies one or more regular files to stdout | `cat` |
 | newlib syscall hooks | partial | `_read`, `_write`, `_open`, `_close`, `_dup2`, `_chdir`, `_lseek`, `_fstat`, `_stat`, `_isatty`, `_getpid`, `_getppid`, `_gettimeofday`, `_times`, `_kill`, `_sbrk`, `_exit`; `_gettimeofday`, `_times`, `_sbrk`, and `_kill` deliberately return an error until their kernel contracts exist | `libc_shim_newlib`, `libc_shim_time_stubs`, `libc_shim_compat`, host `libc_shim`, `syscall_dup2`, `syscall_getpid` |
 | newlib headers/archive | partial | pinned newlib builds with Bun Zig for `x86_64-elf`; an archive-linked C program boots with a fixed 64 KiB `_sbrk` arena pending VM syscalls | `newlib_archive`, `newlib_c_runtime`, `port_source_locks` |
-| Toybox source build | missing | pinned `echo` probe now reaches newlib headers; next blocker is a Zigix portability replacement for Linux `byteswap.h` | `port_source_locks` |
+| Toybox source build | partial | pinned upstream `echo.c` boots through newlib using an echo-only Toybox header overlay; a builtins-based `byteswap.h` portability patch is staged for the broader build; generic newlib `dirent.h` does not support the bare target yet | `toybox`, `cpu_sse`, `port_source_locks` |
+| x86_64 SIMD state | partial | CR0/CR4 enable the SysV SSE/SSE2 baseline required by C stdio; per-thread FXSAVE/XSAVE ownership and isolation are deferred to Phase 18 | `cpu_sse`, `toybox` |
 | `fork`   | missing | deferred; prefer `posix_spawn` until per-process address spaces exist | none  |
 | `mmap`   | missing | future portability/user-memory work         | none  |
 | signals  | missing | deferred until a concrete caller exists     | none  |

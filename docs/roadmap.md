@@ -28,8 +28,8 @@ rejected.
 | 12    | Interactive console shell            | done         | `[ZIGIX:TEST:PASS:tinysh_interactive]`, `[ZIGIX:INIT:START]` + `[ZIGIX:INIT:OK]` |
 | 13    | libc strategy                        | done         | `[ZIGIX:TEST:PASS:libc_shim_newlib]` |
 | 14    | Shell/POSIX usability                | done         | Phase 14 QEMU smoke (`dup2`, `chdir`, `getpid`, `getdents64`, writable memfs, redirection, `cat`, `ls`) |
-| 15    | Portability substrate                | in progress  | `[ZIGIX:TEST:PASS:libc_shim_time_stubs]` |
-| 16    | First third-party C userspace        | pending      | `[ZIGIX:TEST:PASS:toybox]` |
+| 15    | Portability substrate                | done         | `[ZIGIX:TEST:PASS:newlib_c_runtime]` |
+| 16    | First third-party C userspace        | in progress  | `[ZIGIX:TEST:PASS:toybox]` |
 | 17    | Virtual memory and process ABI       | pending      | `[ZIGIX:TEST:PASS:posix_vm]` |
 | 18    | Threads, preemption, and IPC waits   | pending      | `[ZIGIX:TEST:PASS:pthreads]` |
 | 19    | Persistent filesystem                | pending      | `[ZIGIX:TEST:PASS:persistent_fs]` |
@@ -522,8 +522,13 @@ BusyBox/Toybox tree.
   exercises `malloc`, `snprintf`, `strcmp`, `write`, and `free` before emitting
   `[ZIGIX:TEST:PASS:newlib_c_runtime]`. Its fixed 64 KiB `_sbrk` arena is a
   bootstrap mechanism, not the Phase 17 VM contract.
-- [ ] Carry the narrow Toybox portability patch for its Linux `byteswap.h`
-  assumption and continue the single-`echo` build.
+- [x] Carry a narrow future full-build patch for Toybox's Linux `byteswap.h`
+  assumption. Compile upstream `echo.c` unchanged against a deliberately
+  minimal header overlay, boot it, and require the applet itself to print
+  `[ZIGIX:TEST:PASS:toybox]`.
+- [x] Enable the x86_64 SysV SSE/SSE2 userspace baseline in CR0/CR4 after the
+  first newlib stdio run exposed `#UD`. Marker: `[ZIGIX:TEST:PASS:cpu_sse]`.
+  Per-thread extended-state save/restore remains a Phase 18 requirement.
 - Document unsupported-but-intentional POSIX behavior in `docs/posix-compat.md`
   as failures are found.
 
@@ -533,14 +538,19 @@ Use Toybox as the first serious userspace because it can be configured as one
 static binary and narrowed to individual applets. Do not make a full GNU
 userland a prerequisite for graphics or Firefox.
 
-- Import a pinned, reproducible Toybox source revision and document its
+- [x] Import a pinned, reproducible Toybox source revision and document its
   license and local patch set.
-- Cross-build one static applet through the Phase 15 libc contract first.
-  Expand to file, directory, process, and shell applets only after the first
-  applet boots.
-- Add a QEMU smoke that runs the third-party binary, not a Zig reimplementation,
+- [x] Cross-build upstream `echo.c` through the Phase 15 newlib archive. The
+  bootstrap overlay supplies only Toybox's option/global helpers and retains
+  the upstream applet implementation. It runs with argv built by the kernel's
+  ELF stack loader.
+- [x] Add a QEMU smoke that runs the third-party binary, not a Zig reimplementation,
   and requires `[ZIGIX:TEST:PASS:toybox]`.
-- Record every missing syscall or libc hook exposed by the build in
+- [ ] Replace the echo-only header overlay incrementally while adding file,
+  directory, process, and shell applets. Newlib's generic `dirent.h` currently
+  rejects this bare target, so directory-stream ABI is the next concrete libc
+  design input.
+- [x] Record every missing syscall or libc hook exposed by the build in
   `docs/posix-compat.md`; implement only exercised behavior.
 
 ## Phase 17 — Virtual memory and process ABI
@@ -688,9 +698,9 @@ The next thing to do, concretely:
 
 1. Source `.env`, then run `ci/local.sh` to confirm the Phase 15 smoke and the
    Phase 12 scripted interactive smoke still pass.
-2. Carry a narrow Toybox portability patch for `byteswap.h` and continue the
-   single-`echo` build to its next concrete failure. The pinned newlib archive
-   and its QEMU C-runtime smoke are now available as the build foundation.
+2. Expand the Toybox port beyond the echo-only header overlay. Design newlib
+   directory streams over Zigix `getdents64`, then target one upstream file or
+   directory applet without regressing `[ZIGIX:TEST:PASS:toybox]`.
 3. Keep the dependency order explicit: third-party C userspace → VM/process
    ABI → threads/waits → storage/devices/network → hosted dynamic runtime →
    window/graphics/GTK → Firefox. Do not pull late GUI plumbing forward

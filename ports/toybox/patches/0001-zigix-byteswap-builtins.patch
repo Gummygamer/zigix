@@ -1,0 +1,15 @@
+diff --git a/lib/portability.h b/lib/portability.h
+index 1c5f60f..924699c 100644
+--- a/lib/portability.h
++++ b/lib/portability.h
+@@ -142,6 +142,10 @@ static inline char *basename(char *path) { return __xpg_basename(path); }
+ #define bswap_16(x) OSSwapInt16(x)
+ #define bswap_32(x) OSSwapInt32(x)
+ #define bswap_64(x) OSSwapInt64(x)
++#elif defined(__ZIGIX__)
++#define bswap_16(x) __builtin_bswap16(x)
++#define bswap_32(x) __builtin_bswap32(x)
++#define bswap_64(x) __builtin_bswap64(x)
+ #elif defined(__FreeBSD__) || defined(__OpenBSD__)
+ #include <sys/endian.h>
+ #define bswap_16(x) bswap16(x)

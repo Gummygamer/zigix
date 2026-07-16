@@ -48,6 +48,7 @@ export fn kmain(magic: u64, info_ptr: u64) callconv(.c) noreturn {
     });
 
     arch.gdt.init();
+    arch.cpu.enableUserSimd();
     arch.interrupts.init();
     arch.interrupts.enable();
     log.println(.info, "interrupt descriptor table online", .{});

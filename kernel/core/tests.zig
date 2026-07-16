@@ -25,6 +25,11 @@ pub const TEST_memory_smoke = testing.Test{
     .run = memorySmoke,
 };
 
+pub const TEST_cpu_sse = testing.Test{
+    .name = "cpu_sse",
+    .run = cpuSse,
+};
+
 pub const TEST_exception_caught = testing.Test{
     .name = "exception_caught",
     .run = exceptionCaught,
@@ -210,6 +215,10 @@ fn memorySmoke() testing.TestError!void {
     mm.physical.freePage(mapped_page);
 
     serial.writeLine("[ZIGIX:MM:OK]");
+}
+
+fn cpuSse() testing.TestError!void {
+    if (!arch.cpu.userSimdEnabled()) return error.UserSimdDisabled;
 }
 
 fn exceptionCaught() testing.TestError!void {
