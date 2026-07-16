@@ -38,12 +38,22 @@ tools/toolchain/zigix-cc "${common[@]}" \
   -o "$out/newlib-smoke"
 
 tools/toolchain/zigix-cc "${common[@]}" \
+  -isystem "$include_dir" \
+  ports/toybox/start.S \
+  userspace/newlib-dirent/main.c \
+  ports/newlib/dirent.c \
+  userspace/newlib-smoke/syscalls.c \
+  "$libc" \
+  -o "$out/newlib-dirent"
+
+tools/toolchain/zigix-cc "${common[@]}" \
   userspace/newlib-smoke/init.c \
   -o "$out/init"
 
 python3 tools/mkinitramfs/pack.py "$out/initramfs.zixr" \
   --entry init "$out/init" \
   --entry newlib-smoke "$out/newlib-smoke" \
+  --entry newlib-dirent "$out/newlib-dirent" \
   --entry libc-compat zig-out/bin/libc-compat \
   --entry exec-ok zig-out/bin/exec-ok \
   --entry cat zig-out/bin/cat \
@@ -55,4 +65,4 @@ tools/qemu/run.sh \
   "$out/initramfs.zixr" \
   "" \
   "$out/serial.log"
-tools/qemu/smoke_test.py "$out/serial.log" --phase phase15-newlib
+tools/qemu/smoke_test.py "$out/serial.log" --phase phase16-newlib-dirent

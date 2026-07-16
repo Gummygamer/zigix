@@ -29,7 +29,7 @@ rejected.
 | 13    | libc strategy                        | done         | `[ZIGIX:TEST:PASS:libc_shim_newlib]` |
 | 14    | Shell/POSIX usability                | done         | Phase 14 QEMU smoke (`dup2`, `chdir`, `getpid`, `getdents64`, writable memfs, redirection, `cat`, `ls`) |
 | 15    | Portability substrate                | done         | `[ZIGIX:TEST:PASS:newlib_c_runtime]` |
-| 16    | First third-party C userspace        | in progress  | `toybox` + `toybox_cat` |
+| 16    | First third-party C userspace        | in progress  | `toybox` + `toybox_cat` + `newlib_dirent` |
 | 17    | Virtual memory and process ABI       | pending      | `[ZIGIX:TEST:PASS:posix_vm]` |
 | 18    | Threads, preemption, and IPC waits   | pending      | `[ZIGIX:TEST:PASS:pthreads]` |
 | 19    | Persistent filesystem                | pending      | `[ZIGIX:TEST:PASS:persistent_fs]` |
@@ -550,10 +550,18 @@ userland a prerequisite for graphics or Firefox.
   exercises, and prove file input with `[ZIGIX:TEST:PASS:toybox_cat]`. Keep
   `getdents64` regression coverage valid when the larger initramfs requires
   multiple directory-read buffers.
+- [x] Add a Zigix newlib `sys/dirent.h` overlay and directory streams backed
+      by `getdents64`: `opendir`, `fdopendir`, `readdir`, `closedir`,
+      `rewinddir`, and `dirfd`. Kernel `lseek` now rewinds directory cookies,
+      and the archive-linked smoke reaches EOF, rewinds, reads again, and
+      emits `[ZIGIX:TEST:PASS:newlib_dirent]`. The same probe locks down
+      translation of newlib's `O_CREAT`, `O_TRUNC`, and `O_CLOEXEC` values to
+      the Zigix syscall ABI.
 - [ ] Replace the bootstrap header overlay incrementally while adding file,
-  directory, process, and shell applets. The file-applet slice is now live;
-  newlib's generic `dirent.h` still rejects this bare target, so directory
-  streams are the next concrete libc design input.
+  directory, process, and shell applets. File applets and the directory-stream
+  libc boundary are now live; the next slice should compile the narrowest
+  useful upstream Toybox directory consumer and record the support-library or
+  syscall gaps it exposes.
 - [x] Record every missing syscall or libc hook exposed by the build in
   `docs/posix-compat.md`; implement only exercised behavior.
 
@@ -701,10 +709,11 @@ This is the project-level target, not merely a successful link.
 The next thing to do, concretely:
 
 1. Source `.env`, then run `ci/local.sh` to confirm the completed Phase 15
-   substrate and the Phase 12 scripted interactive smoke still pass.
-2. Design newlib directory streams over Zigix `getdents64`, then target one
-   upstream Toybox directory applet without regressing the `echo` and `cat`
-   markers.
+   substrate, Phase 16 directory streams, and the Phase 12 scripted interactive
+   smoke still pass.
+2. Target one upstream Toybox directory applet on the new `DIR` stream layer
+   without regressing the `echo`, `cat`, and `newlib_dirent` markers. Keep the
+   bootstrap overlay narrow and record each concrete support-library blocker.
 3. Keep the dependency order explicit: third-party C userspace → VM/process
    ABI → threads/waits → storage/devices/network → hosted dynamic runtime →
    window/graphics/GTK → Firefox. Do not pull late GUI plumbing forward

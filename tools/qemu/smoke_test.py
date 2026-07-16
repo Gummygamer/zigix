@@ -128,6 +128,13 @@ PHASES: dict[str, list[str]] = {
         "[ZIGIX:TEST:PASS:newlib_c_runtime]",
         "[ZIGIX:INIT:OK]",
     ],
+    "phase16-newlib-dirent": [
+        "[ZIGIX:BOOT:OK]",
+        "[ZIGIX:INIT:START]",
+        "[ZIGIX:TEST:PASS:newlib_c_runtime]",
+        "[ZIGIX:TEST:PASS:newlib_dirent]",
+        "[ZIGIX:INIT:OK]",
+    ],
     "phase16-toybox": [
         "[ZIGIX:BOOT:OK]",
         "[ZIGIX:TEST:PASS:cpu_sse]",

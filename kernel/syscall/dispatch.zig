@@ -544,19 +544,32 @@ fn sysLseek(fd_arg: u64, offset_arg: u64, whence: u64) i64 {
     const process = currentProcess() orelse return errno.fail(errno.SRCH);
     const fd = fdIndex(fd_arg) orelse return errno.fail(errno.BADF);
     const descriptor = process.get(fd) orelse return errno.fail(errno.BADF);
+    const offset: i64 = @bitCast(offset_arg);
+    if (descriptor.target == .dir) {
+        const open_dir = descriptor.target.dir;
+        const base: i64 = switch (whence) {
+            SEEK_SET => 0,
+            SEEK_CUR => @intCast(open_dir.dir.cookie),
+            SEEK_END => return errno.fail(errno.INVAL),
+            else => return errno.fail(errno.INVAL),
+        };
+        const next = std.math.add(i64, base, offset) catch return errno.fail(errno.INVAL);
+        if (next < 0) return errno.fail(errno.INVAL);
+        open_dir.dir.cookie = @intCast(next);
+        return next;
+    }
+
     const open_file = switch (descriptor.target) {
         .file => |open_file| open_file,
         .stdin, .stdout, .stderr, .dir, .pipe_read, .pipe_write => return errno.fail(errno.BADF),
     };
-
-    const offset: i64 = @bitCast(offset_arg);
     const base: i64 = switch (whence) {
         SEEK_SET => 0,
         SEEK_CUR => @intCast(open_file.file.offset),
         SEEK_END => @intCast(open_file.file.inode.data.len),
         else => return errno.fail(errno.INVAL),
     };
-    const next = base + offset;
+    const next = std.math.add(i64, base, offset) catch return errno.fail(errno.INVAL);
     if (next < 0) return errno.fail(errno.INVAL);
 
     open_file.file.offset = @intCast(next);

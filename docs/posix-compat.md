@@ -9,13 +9,14 @@ Update this file whenever syscall or POSIX semantics change.
 | -------- | ------- | ------------------------------------------ | ----- |
 | `read`   | partial | VFS files, writable memfs files, polled serial stdin with `EAGAIN` when empty, pipe read ends | `syscall_vfs`, `syscall_fd_table`, `syscall_writable_memfs`, `syscall_pipe`, `syscall_stdin_console`, `tinysh_interactive` |
 | `write`  | partial | stdout/stderr serial output, writable memfs files, pipe write ends | `syscall_write`, `syscall_pipe`, `syscall_writable_memfs` |
-| `open`   | partial | VFS paths; relative paths resolve against per-process cwd; `O_CREAT`/`O_TRUNC` work for memfs files | `syscall_vfs`, `syscall_fd_table`, `syscall_chdir`, `syscall_writable_memfs` |
+| `open`   | partial | VFS paths; relative paths resolve against per-process cwd; `O_CREAT`/`O_TRUNC` work for memfs files; the newlib hook translates target flag values explicitly | `syscall_vfs`, `syscall_fd_table`, `syscall_chdir`, `syscall_writable_memfs`, `newlib_dirent` |
 | `close`  | partial | per-process fd tables; spawned children inherit descriptors lazily | `syscall_vfs`, `syscall_fd_table`, `syscall_pipe`, `process_fd_tables` |
-| `lseek`  | partial | VFS files only                             | `syscall_vfs`, `syscall_fd_table` |
+| `lseek`  | partial | VFS files; directory descriptors accept `SEEK_SET`/`SEEK_CUR` cookie positions, including rewind to zero | `syscall_vfs`, `syscall_fd_table`, `syscall_getdents64`, `newlib_dirent` |
 | `stat`   | partial | compact Zigix stat layout                  | `syscall_vfs` |
 | `mkdir` / `unlink` / `rename` | partial | fixed-capacity memfs namespace operations; rename does not replace an existing target yet | `syscall_writable_memfs` |
 | `truncate` / `ftruncate` | partial | memfs files up to 4096 bytes per inode | `syscall_writable_memfs` |
 | `getdents64` | partial | Linux-style directory records from directory descriptors; inode numbers are synthetic | `syscall_getdents64` |
+| newlib directory streams | partial | Zigix target `sys/dirent.h`; `opendir`, `fdopendir`, `readdir`, `closedir`, `rewinddir`, and `dirfd`; fixed 255-byte names and no `seekdir`/`telldir` yet | `newlib_dirent`, `syscall_getdents64` |
 | `pipe`   | partial | bounded buffer; first park/wake path for empty reads and full writes; cooperative run queues wake blocked endpoints | `syscall_pipe`, `syscall_pipe_blocking` |
 | `dup`    | partial | lowest free fd; clears close-on-exec       | `syscall_fd_table`, `syscall_pipe` |
 | `dup2`   | partial | requested fd; replaces an open target; same-fd no-op; clears close-on-exec on new duplicates | `syscall_dup2` |
@@ -30,7 +31,7 @@ Update this file whenever syscall or POSIX semantics change.
 | `cat` utility | partial | initramfs userspace command that copies one or more regular files to stdout | `cat` |
 | newlib syscall hooks | partial | `_read`, `_write`, `_open`, `_close`, `_dup2`, `_chdir`, `_lseek`, `_fstat`, `_stat`, `_isatty`, `_getpid`, `_getppid`, `_gettimeofday`, `_times`, `_kill`, `_sbrk`, `_exit`; `_gettimeofday`, `_times`, `_sbrk`, and `_kill` deliberately return an error until their kernel contracts exist | `libc_shim_newlib`, `libc_shim_time_stubs`, `libc_shim_compat`, host `libc_shim`, `syscall_dup2`, `syscall_getpid` |
 | newlib headers/archive | partial | pinned newlib builds with Bun Zig for `x86_64-elf`; an archive-linked C program boots with a fixed 64 KiB `_sbrk` arena pending VM syscalls | `newlib_archive`, `newlib_c_runtime`, `port_source_locks` |
-| Toybox source build | partial | pinned upstream `echo.c` and `cat.c` boot as separate ELF processes through newlib using a narrow Toybox header/runtime overlay; `cat` exercises the newlib `open`/read/write hooks; a builtins-based `byteswap.h` patch is staged for the broader build; generic newlib `dirent.h` does not support the bare target yet | `toybox`, `toybox_cat`, `cpu_sse`, `port_source_locks` |
+| Toybox source build | partial | pinned upstream `echo.c` and `cat.c` boot as separate ELF processes through newlib using a narrow Toybox header/runtime overlay; `cat` exercises the newlib `open`/read/write hooks; a builtins-based `byteswap.h` patch is staged for the broader build; the Zigix newlib overlay now supplies directory streams for the next applet | `toybox`, `toybox_cat`, `newlib_dirent`, `cpu_sse`, `port_source_locks` |
 | x86_64 SIMD state | partial | CR0/CR4 enable the SysV SSE/SSE2 baseline required by C stdio; per-thread FXSAVE/XSAVE ownership and isolation are deferred to Phase 18 | `cpu_sse`, `toybox` |
 | `fork`   | missing | deferred; prefer `posix_spawn` until per-process address spaces exist | none  |
 | `mmap`   | missing | future portability/user-memory work         | none  |

@@ -25,8 +25,9 @@ The guest init passes the first success marker as an argv element, so upstream
 `echo_main` prints it. It then runs upstream `cat_main` against an initramfs
 file containing the second marker. The harness prints neither marker on an
 applet's behalf. This overlay is a bootstrap boundary, not a claim that the
-complete Toybox support library is ported. Newlib directory streams are the
-next concrete blocker for broadening the applet set.
+complete Toybox support library is ported. Zigix now supplies newlib directory
+streams, so the next applet should expose the smallest concrete Toybox
+support-library gap above that boundary.
 
 `[ZIGIX:TEST:PASS:toybox]` and `[ZIGIX:TEST:PASS:toybox_cat]` prove both
 upstream applets boot, receive argv, use newlib, and exit successfully in QEMU.

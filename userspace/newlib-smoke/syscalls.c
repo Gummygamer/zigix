@@ -54,7 +54,11 @@ ssize_t write(int fd, const void *buffer, size_t length) {
 }
 
 int _open(const char *path, int flags, int mode) {
-  return (int)result(syscall3(2, (long)path, flags, mode));
+  int zigix_flags = flags & O_ACCMODE;
+  if (flags & O_CREAT) zigix_flags |= 0100;
+  if (flags & O_TRUNC) zigix_flags |= 01000;
+  if (flags & O_CLOEXEC) zigix_flags |= 02000000;
+  return (int)result(syscall3(2, (long)path, zigix_flags, mode));
 }
 
 int open(const char *path, int flags, ...) {

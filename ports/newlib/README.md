@@ -17,7 +17,10 @@ a clean build and a successful archive test.
 
 The generated sysroot is deliberately ignored. It contains newlib headers,
 including `regex.h`, and `libc.a`; later port steps link it with Zigix startup
-and syscall objects. Boot the archive-backed C runtime probe with:
+and syscall objects. The build installs the Zigix `sys/dirent.h` target overlay
+after newlib's generic unsupported header, while `ports/newlib/dirent.c`
+provides the directory-stream functions to port binaries. Boot the
+archive-backed C runtime and directory-stream probes with:
 
 ```sh
 tools/ports/run-newlib-smoke.sh zig-out/ports/newlib/sysroot/x86_64-elf
@@ -25,4 +28,7 @@ tools/ports/run-newlib-smoke.sh zig-out/ports/newlib/sysroot/x86_64-elf
 
 That program exercises newlib `malloc`, `snprintf`, `strcmp`, `write`, and
 `free` against a temporary 64 KiB userspace `_sbrk` arena. The arena is only a
-bootstrap contract; Phase 17 replaces it with process VM syscalls.
+bootstrap contract; Phase 17 replaces it with process VM syscalls. It also
+boots a separate C program that reaches directory EOF, rewinds, reads again,
+tests descriptor ownership, and checks newlib open-flag translation before
+emitting `[ZIGIX:TEST:PASS:newlib_dirent]`.

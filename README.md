@@ -64,6 +64,11 @@ real argv in QEMU. The applets emit `[ZIGIX:TEST:PASS:toybox]` and copy a file
 containing `[ZIGIX:TEST:PASS:toybox_cat]`, respectively. Zigix also enables the
 x86_64 SSE/SSE2 userspace baseline required by newlib stdio, while per-thread
 SIMD state ownership remains scheduled for the threading phase.
+Zigix now overlays newlib's unsupported generic `sys/dirent.h` with a target
+definition and supplies `opendir`, `fdopendir`, `readdir`, `closedir`,
+`rewinddir`, and `dirfd` over `getdents64`. The booted
+`[ZIGIX:TEST:PASS:newlib_dirent]` probe also verifies directory rewind and the
+newlib-to-Zigix translation for create, truncate, and close-on-exec open flags.
 
 The roadmap now continues beyond command-line userspace through virtual
 memory, pthreads, persistent storage, interactive devices, networking, a

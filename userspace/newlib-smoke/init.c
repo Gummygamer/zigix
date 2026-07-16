@@ -55,6 +55,18 @@ void _start(void) {
     quit(1);
   }
 
+  pid = syscall3(4000, (long)"/newlib-dirent", 0, 0);
+  if (pid <= 0) {
+    say("[ZIGIX:TEST:FAIL:newlib_dirent:spawn]\n");
+    quit(1);
+  }
+  status = -1;
+  waited = syscall4(61, pid, (long)&status, 0, 0);
+  if (waited != pid || status != 0) {
+    say("[ZIGIX:TEST:FAIL:newlib_dirent:wait]\n");
+    quit(1);
+  }
+
   say("[ZIGIX:INIT:OK]\n");
   quit(0);
 }

@@ -491,6 +491,15 @@ fn syscallGetdents64() testing.TestError!void {
     if (syscall.dispatch.invoke(syscall.numbers.getdents64, @intCast(root_fd), @intFromPtr(&buf), buf.len, 0, 0, 0) != 0) {
         return error.SyscallGetdentsEofFailed;
     }
+    if (syscall.dispatch.invoke(syscall.numbers.lseek, @intCast(root_fd), 0, 0, 0, 0, 0) != 0) {
+        return error.SyscallGetdentsRewindFailed;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.getdents64, @intCast(root_fd), @intFromPtr(&buf), buf.len, 0, 0, 0) <= 0) {
+        return error.SyscallGetdentsRewindReadFailed;
+    }
+    if (syscall.dispatch.invoke(syscall.numbers.lseek, @intCast(root_fd), 0, 2, 0, 0, 0) != -syscall.errno.INVAL) {
+        return error.SyscallGetdentsSeekEndAccepted;
+    }
     if (syscall.dispatch.invoke(syscall.numbers.close, @intCast(root_fd), 0, 0, 0, 0, 0) != 0) {
         return error.SyscallCloseFailed;
     }
